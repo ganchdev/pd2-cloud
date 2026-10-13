@@ -12,3 +12,4 @@ artifacts/
 mise.local.toml
 .env
 .env.*
+PD2-CLOUD-HANDOFF.md
