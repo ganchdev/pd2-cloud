@@ -206,7 +206,14 @@ Safety primitives start in Milestone 1 and gate Milestone 3. Milestone 4 complet
 
 ### First implementation slice
 
-Scaffold the five projects and tests. Define SaveProfile, SaveFileEntry, CollectionSnapshot, PairingConfiguration and validation results. Implement the tested file policy and stable fingerprint service before wiring the local dashboard. Add picker/profile/settings flows and read-only startup/manual refresh. Keep GitHub disconnected and Sync All unavailable until safe execution exists.
+The [delivery plan](delivery-plan.md) divides Foundation into smaller tasks and
+supersedes the earlier suggestion to scaffold all five projects first. As of
+2026-10-13, task 1 implements read-only folder selection/metadata inspection with
+only Core, Local and Desktop. Build, formatting and 10 behavior tests passed on
+macOS; test execution is wired into mise and CI. Native picker interaction and
+visual acceptance remain pending because macOS automation was denied. No validated
+save discovery, profiles, fingerprints, settings or cloud behavior is implemented.
+See the delivery plan for verification limits and the next task.
 
 ## 9. Verification and release prerequisites
 

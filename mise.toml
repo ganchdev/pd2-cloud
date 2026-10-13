@@ -14,7 +14,7 @@ description = "Build the desktop application"
 run = "dotnet build PD2Cloud.slnx --configuration Release"
 
 [tasks.run]
-description = "Open the PD2 Cloud hello-world window"
+description = "Open PD2 Cloud folder inspection"
 run = "dotnet run --project src/PD2Cloud.Desktop/PD2Cloud.Desktop.csproj"
 
 [tasks.format]
@@ -24,3 +24,7 @@ run = "dotnet format PD2Cloud.slnx"
 [tasks."format:check"]
 description = "Check C# formatting without changing files"
 run = "dotnet format PD2Cloud.slnx --verify-no-changes"
+
+[tasks.test]
+description = "Run behavior tests"
+run = "dotnet test PD2Cloud.slnx --configuration Release"

@@ -1,5 +1,10 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/PD2Cloud.Desktop/PD2Cloud.Desktop.csproj" />
+    <Project Path="src/PD2Cloud.Core/PD2Cloud.Core.csproj" />
+    <Project Path="src/PD2Cloud.Local/PD2Cloud.Local.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/PD2Cloud.Tests/PD2Cloud.Tests.csproj" />
   </Folder>
 </Solution>

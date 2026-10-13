@@ -1,28 +1,41 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:PD2Cloud.Desktop.ViewModels"
+        xmlns:core="using:PD2Cloud.Core"
         x:Class="PD2Cloud.Desktop.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
-        Title="PD2 Cloud"
-        Width="560"
-        Height="340"
-        MinWidth="400"
-        MinHeight="260"
-        WindowStartupLocation="CenterScreen">
-    <StackPanel Margin="32"
-                Spacing="16"
-                HorizontalAlignment="Center"
-                VerticalAlignment="Center">
-        <TextBlock Text="PD2 Cloud"
-                   FontSize="18"
-                   HorizontalAlignment="Center" />
-        <TextBlock Text="{Binding Greeting}"
-                   FontSize="36"
-                   FontWeight="SemiBold"
-                   HorizontalAlignment="Center" />
-        <TextBlock Text="Your desktop app starts here."
-                   FontSize="16"
-                   Opacity="0.7"
-                   HorizontalAlignment="Center" />
-    </StackPanel>
+        Title="PD2 Cloud" Width="780" Height="520"
+        MinWidth="520" MinHeight="360" WindowStartupLocation="CenterScreen">
+    <Grid Margin="24" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,*" RowSpacing="12">
+        <TextBlock Text="PD2 Cloud" FontSize="24" FontWeight="SemiBold" />
+        <TextBlock Grid.Row="1" Text="Folder inspection · read only · saves have not been validated"
+                   TextWrapping="Wrap" />
+        <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="12">
+            <Button Content="Select folder…" Click="SelectFolder_Click" IsEnabled="{Binding CanSelect}" />
+            <Button Content="Refresh" Click="Refresh_Click" IsEnabled="{Binding CanRefresh}" />
+        </StackPanel>
+        <SelectableTextBlock Grid.Row="3" Text="{Binding SelectedPath}" TextWrapping="Wrap" />
+        <TextBlock Grid.Row="4" Text="{Binding PickerNotice}" TextWrapping="Wrap" />
+        <TextBlock Grid.Row="5" Text="{Binding Status}" TextWrapping="Wrap" />
+        <Grid Grid.Row="6" RowDefinitions="Auto,*">
+            <Grid ColumnDefinitions="*,130,210" Margin="8,0,8,8">
+                <TextBlock Text="Name" FontWeight="SemiBold" />
+                <TextBlock Grid.Column="1" Text="Size" FontWeight="SemiBold" />
+                <TextBlock Grid.Column="2" Text="Details" FontWeight="SemiBold" />
+            </Grid>
+            <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled">
+                <ItemsControl ItemsSource="{Binding Entries}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="core:FolderEntry">
+                            <Grid ColumnDefinitions="*,130,210" Margin="8,6">
+                                <SelectableTextBlock Text="{Binding Name}" TextWrapping="Wrap" />
+                                <TextBlock Grid.Column="1" Text="{Binding SizeDisplay}" />
+                                <TextBlock Grid.Column="2" Text="{Binding Description}" TextWrapping="Wrap" />
+                            </Grid>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+        </Grid>
+    </Grid>
 </Window>

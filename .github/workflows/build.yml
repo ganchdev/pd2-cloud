@@ -25,5 +25,7 @@ jobs:
         run: dotnet restore PD2Cloud.slnx
       - name: Build
         run: dotnet build PD2Cloud.slnx --configuration Release --no-restore
+      - name: Test
+        run: dotnet test PD2Cloud.slnx --configuration Release --no-build
       - name: Check formatting
         run: dotnet format PD2Cloud.slnx --verify-no-changes --no-restore
