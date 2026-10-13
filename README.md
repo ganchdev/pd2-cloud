@@ -2,8 +2,6 @@
 
 A desktop app for manually synchronizing Project Diablo 2 single-player saves through GitHub.
 
-This source repository is public so the project can use free GitHub-hosted Actions runners. The planned save-storage repository is separate and private.
-
 This first slice contains an Avalonia hello-world window. Save discovery, GitHub account connection and synchronization will follow the MVP specification.
 
 The proposed architecture and milestone backlog are in the [implementation plan](docs/implementation-plan.md).
@@ -28,9 +26,7 @@ mise run build
 mise run format:check
 ```
 
-`mise run format` applies C# formatting. The build workflow uses GitHub-hosted runners to build and check formatting on Windows, macOS and Linux; it does not yet validate packaged releases or game compatibility. `.gitattributes` keeps text files on LF line endings across platforms so checkout agrees with `.editorconfig`.
-
-Local agent progress is recorded in `PD2-CLOUD-HANDOFF.md`, which is ignored by Git.
+`mise run format` applies C# formatting. CI builds and checks formatting on Windows, macOS and Linux.
 
 ## Layout
 
