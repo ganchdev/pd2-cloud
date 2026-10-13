@@ -1,0 +1,5 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/PD2Cloud.Desktop/PD2Cloud.Desktop.csproj" />
+  </Folder>
+</Solution>

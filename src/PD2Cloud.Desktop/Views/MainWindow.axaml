@@ -1,0 +1,28 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:PD2Cloud.Desktop.ViewModels"
+        x:Class="PD2Cloud.Desktop.Views.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Title="PD2 Cloud"
+        Width="560"
+        Height="340"
+        MinWidth="400"
+        MinHeight="260"
+        WindowStartupLocation="CenterScreen">
+    <StackPanel Margin="32"
+                Spacing="16"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center">
+        <TextBlock Text="PD2 Cloud"
+                   FontSize="18"
+                   HorizontalAlignment="Center" />
+        <TextBlock Text="{Binding Greeting}"
+                   FontSize="36"
+                   FontWeight="SemiBold"
+                   HorizontalAlignment="Center" />
+        <TextBlock Text="Your desktop app starts here."
+                   FontSize="16"
+                   Opacity="0.7"
+                   HorizontalAlignment="Center" />
+    </StackPanel>
+</Window>
