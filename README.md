@@ -22,16 +22,18 @@ mise run format:check
 mise run test
 ```
 
+`mise.toml` opts out of .NET and Avalonia build-time telemetry. This avoids Avalonia statistics logging failures in restricted environments. When invoking `dotnet` outside mise, set `AVALONIA_TELEMETRY_OPTOUT=1` in that environment too.
+
 `mise run format` applies C# formatting. CI builds, tests and checks formatting on Windows, macOS and Linux. Tests use synthetic binary files; no game saves are required.
 
 ## Layout
 
 - `src/PD2Cloud.Core`: generic manifest, file, validation and future baseline models; scanner interface and portable path rules.
-- `src/PD2Cloud.Local`: recursive inspection, read-only hashing and application-data path boundary.
+- `src/PD2Cloud.Local`: recursive inspection, read-only hashing and versioned folder settings in application data.
 - `src/PD2Cloud.Desktop`: Avalonia views, view model and native folder picker.
 - `tests/PD2Cloud.Tests`: filesystem and view-model behavior tests.
 
-See [folder inspection](docs/folder-inspection.md), the [implementation plan](docs/implementation-plan.md) and the [delivery tracker](docs/delivery-plan.md) for rules, limitations and remaining work. Folder selection is not yet persisted. No authentication, remote access, baseline persistence or synchronization is implemented.
+See [folder inspection](docs/folder-inspection.md), the [implementation plan](docs/implementation-plan.md) and the [delivery tracker](docs/delivery-plan.md) for rules, limitations and remaining work. Folder selection is saved in platform application data and restored with a fresh read-only inspection on restart. Settings notices explain restoration or save failures. No authentication, remote access, baseline persistence or synchronization is implemented.
 
 The source repository is public. Future save storage will use a separate private repository.
 

@@ -6,12 +6,15 @@ namespace PD2Cloud.Desktop.ViewModels;
 
 public enum InspectionState { Initial, Scanning, ScannedSuccessfully, NeedsAttention, Failed }
 
-public sealed class MainWindowViewModel(ICollectionScanner scanner, IFolderPicker picker) : INotifyPropertyChanged, IDisposable
+public sealed class MainWindowViewModel(ICollectionScanner scanner, IFolderPicker picker, IFolderSettingsStore? settings = null) : INotifyPropertyChanged, IDisposable
 {
     private CancellationTokenSource? scan;
     private long generation;
     private bool disposed;
     private bool picking;
+    private bool initializing;
+    private bool initialized;
+    private string settingsNotice = "";
     private string? selectedPath;
     private string pickerNotice = "";
     private string status = "Select your save folder to get started.";
@@ -20,6 +23,8 @@ public sealed class MainWindowViewModel(ICollectionScanner scanner, IFolderPicke
 
     public event PropertyChangedEventHandler? PropertyChanged;
     public string? SelectedPath => selectedPath;
+    public string SettingsNotice => settingsNotice;
+    public bool HasSettingsNotice => settingsNotice.Length > 0;
     public string PickerNotice => pickerNotice;
     public string Status => status;
     public InspectionState State => state;
@@ -32,7 +37,7 @@ public sealed class MainWindowViewModel(ICollectionScanner scanner, IFolderPicke
     public bool IsBusy => state == InspectionState.Scanning;
     public bool HasPickerNotice => pickerNotice.Length > 0;
     public bool CanRefresh => HasFolder && !disposed;
-    public bool CanSelect => !picking && !disposed;
+    public bool CanSelect => !picking && !initializing && !disposed;
     public bool HasInspection => manifest is not null;
     public bool ShowEmpty => manifest?.IsValid == true && Files.Count == 0;
     public string CountSummary => manifest?.IsValid == true ? $"{Files.Count} {(Files.Count == 1 ? "file" : "files")}" : "File inventory incomplete";
@@ -45,6 +50,33 @@ public sealed class MainWindowViewModel(ICollectionScanner scanner, IFolderPicke
         InspectionState.Failed => "Failed",
         _ => ""
     };
+
+    public async Task InitializeAsync()
+    {
+        if (initialized || disposed) return;
+        initialized = true;
+        if (settings is null) return;
+        initializing = true;
+        Notify();
+        try
+        {
+            var restored = await settings.LoadAsync();
+            if (disposed) return;
+            settingsNotice = restored.Notice;
+            selectedPath = restored.SelectedFolder;
+            initializing = false;
+            if (selectedPath is not null) await RefreshAsync();
+        }
+        catch (Exception)
+        {
+            if (!disposed) settingsNotice = "Could not restore folder settings. Choose a folder to continue.";
+        }
+        finally
+        {
+            initializing = false;
+            if (!disposed) Notify();
+        }
+    }
 
     public async Task SelectFolderAsync()
     {
@@ -61,6 +93,25 @@ public sealed class MainWindowViewModel(ICollectionScanner scanner, IFolderPicke
             {
                 pickerNotice = "Folder selection cancelled. Current selection kept.";
                 return;
+            }
+            if (settings is not null)
+            {
+                if (!settings.IsSourceAllowed(path))
+                {
+                    pickerNotice = "Choose a folder outside application-owned state and staging, and not a parent of that location.";
+                    return;
+                }
+                try
+                {
+                    await settings.SaveFolderAsync(path);
+                    if (disposed) return;
+                    settingsNotice = "";
+                }
+                catch (Exception)
+                {
+                    if (disposed) return;
+                    settingsNotice = "Folder could not be saved for restart. You can still inspect it; existing settings have been kept. Choose the folder again to retry.";
+                }
             }
         }
         catch (Exception)

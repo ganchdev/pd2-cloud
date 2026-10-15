@@ -23,6 +23,30 @@ public sealed class MainWindowViewModelTests
             return result.Task; // Deliberately ignores cancellation to exercise stale results.
         }
     }
+    private sealed class DelayedSettings : IFolderSettingsStore
+    {
+        public TaskCompletionSource<FolderSettingsResult> Loaded { get; } = new();
+        public bool IsSourceAllowed(string path) => true;
+        public Task<FolderSettingsResult> LoadAsync() => Loaded.Task;
+        public Task SaveFolderAsync(string path) => Task.CompletedTask;
+    }
+
+    [Fact]
+    public async Task ClosingDuringRestoreRejectsLateFolderAndRepeatedInitialization()
+    {
+        var scanner = new Scanner();
+        var settings = new DelayedSettings();
+        using var model = new MainWindowViewModel(scanner, new Picker(), settings);
+        var startup = model.InitializeAsync();
+        Assert.False(model.CanSelect);
+        await model.InitializeAsync();
+        model.Dispose();
+        settings.Loaded.SetResult(new("/folder"));
+        await startup;
+        Assert.Null(model.SelectedPath);
+        Assert.Empty(scanner.Requests);
+    }
+
     private static CollectionManifest Manifest(string? name = null, ValidationIssue? issue = null) =>
         new(1, "/folder", name is null ? [] : [new(name, 42, new string('a', 64))], issue is null ? "hash" : null,
             DateTimeOffset.UtcNow, issue is null, issue is null ? [] : [issue]);

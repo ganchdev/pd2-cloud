@@ -8,7 +8,7 @@ PD2 Cloud is a generic folder synchronization engine. All regular files within t
 
 Use C#/.NET 10 and Avalonia MVVM. Core holds generic models and the scanner boundary, Local implements filesystem inspection, and Desktop composes them with a native picker. Local never depends on GitHub or Desktop. Add GitHub/platform projects only when needed by implemented features. The [inspection specification](folder-inspection.md) defines schema 1, canonical paths, hashing and safety guarantees.
 
-Task 2 implements local recursive inspection and a simple file dashboard. Inspection has no cloud state and never establishes a baseline. Task 3 will persist the selected folder outside the source tree. See the [delivery plan](delivery-plan.md).
+Task 2 implements local recursive inspection and a simple file dashboard. Inspection has no cloud state and never establishes a baseline. Task 3 persists the selected folder outside the source tree and restores it with a fresh inspection. See the [delivery plan](delivery-plan.md).
 
 ## Implemented as of 2026-10-15
 
@@ -20,13 +20,14 @@ Task 2 implements local recursive inspection and a simple file dashboard. Inspec
 | Safety | Portable path validation, case/Unicode collision detection, link rejection, permission/read diagnostics and two-pass stability checks |
 | Responsiveness | Worker-thread inspection, cancellation and rejection of superseded results/errors |
 | Diagnostics | Collapsed Inspection Details with issues, excluded paths, file sizes/hashes and collection fingerprint |
-| Future baseline boundary | `LocalSyncState` record and platform application-data path only; no persistence or remote behavior |
+| Local preferences | Versioned folder settings, safe replacement, startup inspection, persistent failure notices and application-storage source rejection |
+| Future baseline boundary | `LocalSyncState` remains a model/path only; no baseline persistence or remote behavior |
 
 The former profile registry, format-specific inventory policies, sidecar associations, stash questions/configuration, game-version fields and their tests have been removed. The old metadata-only inspector was also removed; the desktop now uses one generic scanner interface. The read-only fingerprint reader and native folder picker were reused.
 
 Verification on macOS passed: 29 test cases, formatting, and a Release build with zero warnings/errors. The real window was rendered and visually inspected through a temporary native harness with a test picker. Hosted CI results were not available during local verification of this refactor. CI is configured for Windows, macOS and Linux; native picker and Windows/Linux acceptance remain open.
 
-Task 2's implementation is complete. Task 3 is the next planned feature and has not started. Settings persistence, authentication, GitHub reads, comparison, backups, recovery and transfers remain future work. The refactor does not require game fixtures or gameplay validation.
+Tasks 2 and 3 are implemented. Task 4 (pure comparison) is next. Task-3 validation passed 45 tests, formatting and a Release build with zero warnings/errors; standard mise build/test commands now work with Avalonia’s supported telemetry opt-out configured in `mise.toml`. Restored/error UI states were rendered and visually inspected in the real window through a temporary native harness. Authentication, GitHub reads, comparison, backups, recovery and transfers remain future work. Folder preference persistence is separate from successful-sync state. See the inspection specification for restart verification and settings limitations. The refactor does not require game fixtures or gameplay validation.
 
 ## Future comparison and synchronization
 

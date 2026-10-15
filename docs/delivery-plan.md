@@ -9,10 +9,10 @@ Revised 2026-10-15 for generic folder synchronization. Earlier game-format inven
 | Setup | Complete | Cross-platform workflow remains configured; no new hosted run for the current refactor |
 | 1. Folder selection and inspection | Implemented; listing replaced by task 2 | Native picker interaction and platform acceptance |
 | 2. Generic recursive discovery | Implemented | Native Windows/Linux checks and large-folder performance remain unverified |
-| 3. Persistent local dashboard | Not started | Folder settings, restart behavior and persistence failure handling |
+| 3. Persistent local dashboard | Implemented | Native Windows/Linux acceptance; see limitations below |
 | 4–11. Comparison, cloud, recovery and distribution | Not started | See subsequent chunks below |
 
-The next implementation task is **task 3**. Native acceptance can be completed separately; obsolete game-profile evidence does not block further generic-folder work.
+The next planned implementation task is **task 4**. Native acceptance can be completed separately; obsolete game-profile evidence does not block further generic-folder work.
 
 ## Current tasks
 
@@ -40,13 +40,15 @@ Synthetic tests cover recursive arbitrary-file inventories, hashes, cross-root e
 
 Native Windows/Linux checks and native picker interaction remain platform acceptance limitations rather than save-format gates. The harness does not establish native picker or pointer/keyboard acceptance. Avalonia build services required access outside the filesystem sandbox to their application-data log. Inspection is observational rather than an atomic snapshot; large-folder UI performance remains unverified.
 
-### 3. Resume the local dashboard reliably — next, not started
+### 3. Resume the local dashboard reliably — implemented
 
-Persist versioned non-secret folder settings in platform application data, outside the inspected tree. Restart performs inspection only. Handle malformed/older settings and unavailable paths without discarding unrelated settings or credentials. Reject source roots that contain app-owned state/staging. Test restart/failure behavior and keep the local workflow usable without GitHub.
+Versioned `settings.json` now stores only the folder preference under platform local application data/PD2Cloud. Opening the window restores that folder and performs a fresh read-only inspection. Missing/inaccessible folders retain the selection and offer Refresh/Change Folder. Settings notices remain separate from inspection status, so save failure does not prevent inspection.
 
-**Demo:** Select a folder, close/reopen the app, and see a fresh read-only inspection of that folder without GitHub access.
+Missing settings start empty. Version 0 or missing-version objects are accepted and upgraded on the next selection, preserving unknown fields. Malformed or future-version documents remain untouched and show a notice; select a folder for the current session, then repair/move the damaged settings file to enable future saving. No credentials are read, written or removed. Settings never create or advance `LocalSyncState`.
 
-**Done when:** Restart, missing/inaccessible folder, malformed settings, obsolete unknown fields and safe settings replacement are covered. Persisting a folder choice must not create or advance `LocalSyncState`; that record is reserved for a real successful synchronization.
+Replacement uses a unique same-directory temporary file, flushes its contents to disk, closes it and renames over the destination. Failed writes preserve the old file and clean up temporary files where possible. Source roots that contain application storage, equal it or lie within it are rejected before persistence and by the scanner, including the reserved future state/staging subtree before it exists. No filename exclusions or format-specific settings were added.
+
+**Verification:** Standard `mise run test` passed all 45 tests, `mise run build` passed with zero warnings/errors, and formatting and diff checks passed. Actual MainWindow restart/error states were rendered and visually inspected with a temporary native harness. Avalonia’s supported telemetry opt-out is configured in `mise.toml`; `mise run run` also starts without extra MSBuild flags. **Limitations:** See [folder inspection](folder-inspection.md) for task-3 test/build/UI results and durability/platform limits. No GitHub access or background synchronization was implemented.
 
 ## Subsequent chunks
 

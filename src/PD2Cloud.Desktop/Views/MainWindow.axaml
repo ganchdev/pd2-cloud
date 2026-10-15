@@ -15,6 +15,7 @@
                     <Button Content="Select Folder" Click="SelectFolder_Click" IsEnabled="{Binding CanSelect}"
                             FontSize="16" Padding="24,14" HorizontalAlignment="Left" />
                 </StackPanel>
+                <TextBlock Text="{Binding SettingsNotice}" TextWrapping="Wrap" IsVisible="{Binding HasSettingsNotice}" />
                 <TextBlock Text="{Binding PickerNotice}" TextWrapping="Wrap" IsVisible="{Binding HasPickerNotice}" />
                 <StackPanel IsVisible="{Binding HasFolder}" Spacing="16">
                     <TextBlock Text="Your files" FontSize="26" FontWeight="SemiBold" />

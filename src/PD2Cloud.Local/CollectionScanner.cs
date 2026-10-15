@@ -6,7 +6,7 @@ using PD2Cloud.Core;
 namespace PD2Cloud.Local;
 
 /// <summary>Recursive read-only inspection with two complete hash passes and three inventory checks.</summary>
-public sealed class CollectionScanner(IFileFingerprintReader? reader = null) : ICollectionScanner
+public sealed class CollectionScanner(IFileFingerprintReader? reader = null, string? applicationDirectory = null) : ICollectionScanner
 {
     private readonly IFileFingerprintReader reader = reader ?? new FileFingerprintReader();
 
@@ -24,6 +24,11 @@ public sealed class CollectionScanner(IFileFingerprintReader? reader = null) : I
         {
             token.ThrowIfCancellationRequested();
             root = Path.GetFullPath(path);
+            if (!ApplicationDataPaths.IsSourceAllowed(root, applicationDirectory))
+            {
+                issues.Add(new(ValidationCode.UnsafePath, "Select a folder outside application-owned state and staging, and not a parent of that location."));
+                return Result([], false);
+            }
             var before = Inventory(root, token, issues);
             // Do not present a partial collection as complete when enumeration or validation fails.
             if (issues.Count > 0) return Result([], false);

@@ -1,6 +1,6 @@
 # Generic folder inspection
 
-Implementation reference, updated 2026-10-15. Task 2 is implemented; folder persistence and cloud synchronization are not.
+Implementation reference, updated 2026-10-15. Tasks 2 and 3 are implemented; cloud synchronization is not.
 
 PD2 Cloud is a generic folder synchronization engine. All regular files within the selected directory are treated as opaque binary data. The product's save-folder wording is presentation only; discovery contains no format knowledge or file-content parsing.
 
@@ -40,7 +40,7 @@ Before selection, the app displays PD2 Cloud, “Find your saves”, the request
 | Needs attention | Safety or stability checks block a complete valid inventory |
 | Failed | Folder access, enumeration, reading or an unexpected error prevented inspection |
 
-Incomplete scans show “File inventory incomplete”; they do not claim an empty collection. Inspection Details exposes issue paths/messages, sizes, hashes and the collection fingerprint. Cancelling or failing the folder picker retains the current selection/results. Changing the folder starts a new inspection. There is no automatic background scan or synchronization, and selecting a folder does not persist it across restarts.
+Incomplete scans show “File inventory incomplete”; they do not claim an empty collection. Inspection Details exposes issue paths/messages, sizes, hashes and the collection fingerprint. Cancelling or failing the folder picker retains the current selection/results. Changing the folder starts a new inspection. There is no automatic background scan or synchronization, and restart performs one fresh inspection of the persisted folder.
 
 ## Read-only stability checks
 
@@ -52,9 +52,9 @@ These observations are not an atomic snapshot or a lock against external writers
 
 ## Local state boundary
 
-`LocalSyncState` only defines a future successful-sync record: schema version, selected repository identity/branch, accepted Git commit, local root, file fingerprints and successful-sync timestamp. No instance is fabricated by inspection, no state file is currently written or read, and no migration runs at startup. Prior folder/profile choices were in memory only, so there is no existing persisted configuration to migrate. Future JSON decoding ignores unknown obsolete fields while retaining the defined unrelated fields; persistence must preserve unrelated settings/credentials when it is introduced.
+`LocalSyncState` only defines a future successful-sync record: schema version, selected repository identity/branch, accepted Git commit, local root, file fingerprints and successful-sync timestamp. No instance is fabricated by inspection, no successful-sync state file is written or read. Folder settings use a separate persistence service. Prior folder/profile choices were in memory only, so there is no existing persisted configuration to migrate. Settings decoding retains unknown obsolete and unrelated JSON fields when updating the selected folder; obsolete fields never affect inspection. Credential storage is not implemented or touched.
 
-`ApplicationDataPaths.LocalSyncStatePath` reserves `local-sync-state.json` beneath `Environment.SpecialFolder.LocalApplicationData/PD2Cloud`, outside the source directory. Typical locations are `%LOCALAPPDATA%/PD2Cloud` on Windows, `~/Library/Application Support/PD2Cloud` on macOS and `$XDG_DATA_HOME/PD2Cloud` (usually `~/.local/share/PD2Cloud`) on Linux, as resolved by .NET. This is a path boundary only, not a persistence service. Future onboarding must reject a source containing the application state/staging location rather than creating sync loops.
+`ApplicationDataPaths.LocalSyncStatePath` reserves `local-sync-state.json` beneath `Environment.SpecialFolder.LocalApplicationData/PD2Cloud`, outside the source directory. Typical locations are `%LOCALAPPDATA%/PD2Cloud` on Windows, `~/Library/Application Support/PD2Cloud` on macOS and `$XDG_DATA_HOME/PD2Cloud` (usually `~/.local/share/PD2Cloud`) on Linux, as resolved by .NET. The whole application-data directory is reserved, including future staging. Folder selection and the scanner reject source roots that contain, equal or lie within that directory, even before it exists. Prefix checks respect directory boundaries and use case-insensitive comparison on Windows/macOS; the scanner also rejects linked source ancestors. Application storage with linked ancestors or a linked settings file is rejected rather than followed.
 
 ## Verification and limitations
 
@@ -70,4 +70,31 @@ No new hosted CI results or Windows/Linux native results are claimed for this re
 
 Synthetic tests cover arbitrary extensions, recursion, exact bytes/hashes, deterministic fingerprints, refresh additions/modifications/removals, empty folders, portable names, Unicode canonicalization, collisions, permissions, links, nonregular files, cancellation, instability and unchanged source bytes/write times. Filesystem collision fixtures run only when the volume can represent both conflicting names; portable collision-key checks run everywhere. Unix fixtures are skipped on Windows; native Windows ACL/reparse acceptance is still required.
 
-Native picker interaction remains a manual acceptance item. Prior macOS automation was denied by the OS. Windows/Linux execution, packaging and native visual acceptance must be checked on those platforms before claiming native support. Very large inventories are materialized in memory and rendered as a simple unvirtualized list; performance tuning is deferred. Folder choice is not persisted. No remote state, credentials, background sync or GitHub synchronization is added by this task.
+Native picker interaction remains a manual acceptance item. Prior macOS automation was denied by the OS. Windows/Linux execution, packaging and native visual acceptance must be checked on those platforms before claiming native support. Very large inventories are materialized in memory and rendered as a simple unvirtualized list; performance tuning is deferred. Folder choice is persisted separately from the baseline. No remote state, credentials, background sync or GitHub synchronization is added by this task.
+
+## Folder settings and restart (task 3)
+
+`ApplicationDataPaths.SettingsPath` is `settings.json` beside the reserved `local-sync-state.json`, under the .NET platform `LocalApplicationData/PD2Cloud` location. The schema is `{ "SchemaVersion": 1, "SelectedFolder": "absolute physical folder path" }`. No manifests, hashes, timestamps, baseline or secrets are persisted by this workflow.
+
+Startup loads preferences once and starts a fresh inspection. It never rewrites settings merely by opening or refreshing. Selecting an allowed folder saves it even when it is currently unavailable; inspection reports that failure without forgetting the preference. Cancelled/rejected selection retains the current folder. Closing during load/inspection rejects late UI results. Persistence failure displays a separate notice and permits session-only inspection; choosing the folder again retries saving.
+
+Missing settings use an empty preference object. Older version 0 or unversioned JSON objects retain unknown fields and upgrade to version 1 on explicit selection. Malformed JSON, wrong field types, non-object JSON and unsupported versions are left untouched. Invalid/unsafe stored paths are not inspected. The UI explains restoration failure and allows selection; damaged/future settings need manual repair or relocation before they can be saved again. No credentials exist yet, and this code never touches a credential facility or synchronization state.
+
+Updates reread the latest document, change only `SchemaVersion`/`SelectedFolder`, create a unique temporary file in the same app directory, flush file contents to disk and rename over the destination. An in-process semaphore serializes operations on the store. Failed writes leave the previous settings intact; normal failure cleanup removes the temporary file. A crash may leave an unused temporary file; it is never treated as settings or inspected. Atomic rename depends on the underlying filesystem. Directory metadata is not fsynced, so survival of sudden power loss is not guaranteed. There is no cross-process writer coordination or protection against adversarial path replacement. Future staging outside the reserved application directory must be added to the rejection policy before use.
+
+Task-3 verification on macOS (2026-10-15):
+
+- `mise run test -- -p:UsedAvaloniaProducts=`: 45 passed, zero failed (16 new test cases over task 2).
+- `mise run build -- -p:UsedAvaloniaProducts=`: Release passed with zero warnings/errors.
+- `mise run format:check`: passed. `git diff --check`: passed.
+- Standard build/harness invocations encountered Avalonia statistics-task access denial for its application-data build log, including escalation attempts. The command-line property above skips that statistics target for local verification only; project/package settings are unchanged.
+- A temporary native Avalonia harness rendered the real MainWindow with actual settings storage and a test picker. Visually inspected selected/restored results, missing restored folder, malformed settings, save failure at minimum size and rejected application-data selection at minimum size. Notices wrap and recovery buttons remain usable. Harness captures are at `/private/tmp/pd2-generic-ui/task3-*.png` and are not product/test dependencies.
+- Tests cover fresh contents after restart, missing/inaccessible restored folders and recovery, malformed/future/wrong-type documents, older/unknown fields, preservation of unrelated preferences, replacement/failure cleanup, linked settings, source/storage boundaries and disposal during delayed startup.
+
+Native Windows/Linux execution, native picker interaction, actual process termination/power-loss testing and large-folder performance remain unverified. Tests simulate restart using fresh store/view-model instances and real temporary files, rather than launching two product processes. Unix permissions/link fixtures return early on Windows; Windows ACL/reparse acceptance remains necessary.
+
+### Build/run logging fix (2026-10-15)
+
+The Avalonia logging error also reproduced with the user's normal `mise run run`, so the earlier command-line statistics workaround was insufficient for daily development. `mise.toml` now sets the upstream-supported `AVALONIA_TELEMETRY_OPTOUT=1` alongside the .NET telemetry opt-out. This makes the statistics task return without attempting telemetry/log writes. No dependency or application behavior changed. Direct `dotnet` calls outside mise need the same environment variable.
+
+Verified without extra MSBuild flags: `mise run build` passed with zero warnings/errors, `mise run test` passed all 45 tests, and `mise run format:check` passed. `mise run run` built and remained running without the logging error; the verification process was then stopped with Ctrl-C. No file permissions were changed. This supersedes the need for `-p:UsedAvaloniaProducts=` in the earlier validation notes.

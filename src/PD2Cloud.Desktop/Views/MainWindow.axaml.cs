@@ -9,6 +9,10 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        Opened += async (_, _) =>
+        {
+            if (DataContext is MainWindowViewModel model) await model.InitializeAsync();
+        };
         Closed += (_, _) => (DataContext as MainWindowViewModel)?.Dispose();
     }
 
