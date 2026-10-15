@@ -6,7 +6,7 @@ PD2 Cloud is a generic folder synchronization engine. All regular files within t
 
 ## Current boundaries
 
-Use C#/.NET 10 and Avalonia MVVM. Core holds generic models and the scanner boundary, Local implements filesystem inspection, and Desktop composes them with a native picker. Local never depends on GitHub or Desktop. Add GitHub/platform projects only when needed by implemented features. The [inspection specification](folder-inspection.md) defines schema 1, canonical paths, hashing and safety guarantees.
+Use C#/.NET 10 and Avalonia MVVM. Core holds generic models, pure collection comparison and the scanner boundary, Local implements filesystem inspection, and Desktop composes them with a native picker. Local never depends on GitHub or Desktop. Add GitHub/platform projects only when needed by implemented features. The [inspection specification](folder-inspection.md) defines schema 1, canonical paths, hashing and safety guarantees.
 
 Task 2 implements local recursive inspection and a simple file dashboard. Inspection has no cloud state and never establishes a baseline. Task 3 persists the selected folder outside the source tree and restores it with a fresh inspection. See the [delivery plan](delivery-plan.md).
 
@@ -21,15 +21,18 @@ Task 2 implements local recursive inspection and a simple file dashboard. Inspec
 | Responsiveness | Worker-thread inspection, cancellation and rejection of superseded results/errors |
 | Diagnostics | Collapsed Inspection Details with issues, excluded paths, file sizes/hashes and collection fingerprint |
 | Local preferences | Versioned folder settings, safe replacement, startup inspection, persistent failure notices and application-storage source rejection |
-| Future baseline boundary | `LocalSyncState` remains a model/path only; no baseline persistence or remote behavior |
+| Comparison | Pure complete-inventory decision table, missing-file review and typed safety blocks; no desktop integration |
+| Future baseline boundary | `LocalSyncState` is a supplied comparison input and reserved path only; no baseline persistence or remote behavior |
 
 The former profile registry, format-specific inventory policies, sidecar associations, stash questions/configuration, game-version fields and their tests have been removed. The old metadata-only inspector was also removed; the desktop now uses one generic scanner interface. The read-only fingerprint reader and native folder picker were reused.
 
 Verification on macOS passed: 29 test cases, formatting, and a Release build with zero warnings/errors. The real window was rendered and visually inspected through a temporary native harness with a test picker. Hosted CI results were not available during local verification of this refactor. CI is configured for Windows, macOS and Linux; native picker and Windows/Linux acceptance remain open.
 
-Tasks 2 and 3 are implemented. Task 4 (pure comparison) is next. Task-3 validation passed 45 tests, formatting and a Release build with zero warnings/errors; standard mise build/test commands now work with Avalonia’s supported telemetry opt-out configured in `mise.toml`. Restored/error UI states were rendered and visually inspected in the real window through a temporary native harness. Authentication, GitHub reads, comparison, backups, recovery and transfers remain future work. Folder preference persistence is separate from successful-sync state. See the inspection specification for restart verification and settings limitations. The refactor does not require game fixtures or gameplay validation.
+Tasks 2–4 are implemented. Task 5 (GitHub connection) is next. Task-3 validation passed 45 tests, formatting and a Release build with zero warnings/errors; standard mise build/test commands now work with Avalonia’s supported telemetry opt-out configured in `mise.toml`. Restored/error UI states were rendered and visually inspected in the real window through a temporary native harness. Authentication, GitHub reads, backups, recovery and transfers remain future work. Task-4 verification passed 97 tests, standard Release build (zero warnings/errors) and formatting on macOS; no UI changes were necessary. Folder preference persistence is separate from successful-sync state. See the inspection specification for restart verification and settings limitations. The refactor does not require game fixtures or gameplay validation.
 
-## Future comparison and synchronization
+## Comparison and future synchronization
+
+Task 4 implements only step 4 and its advisory decisions below, through `CollectionComparer.Compare` in Core. See the [comparison contract](collection-comparison.md) for API inputs, validation precedence and limitations. It accepts an optional supplied successful baseline; it never creates, loads, saves or advances one. Callers must supply verified pinned remote state and baseline history evidence. The current desktop still performs local inspection only.
 
 Startup and Refresh inspect only. An explicit Sync All action is the only transfer trigger; there is no automatic background sync. The future flow is:
 
@@ -42,7 +45,7 @@ Startup and Refresh inspect only. An explicit Sync All action is the only transf
 
 | Validated condition | Decision |
 |---|---|
-| Local equals remote | No transfer; baseline may advance after verification |
+| Local equals remote, with no missing baseline paths | No transfer; any future baseline advancement requires separate verification |
 | No baseline, only local populated | Initial upload |
 | No baseline, only remote populated | Initial download |
 | No baseline, both populated and different | Ask for explicit reconciliation |
@@ -52,7 +55,7 @@ Startup and Refresh inspect only. An explicit Sync All action is the only transf
 | Previously synchronized file absent on either side | Explicit review; no automatic deletion propagation |
 | Unstable, unsafe, unreadable or unverified state | Block transfer |
 
-Different-file edits on different devices still conflict at collection level. Equality includes paths and file hashes, not timestamps. Baseline identity includes repository ID, branch and selected local root. A changed pairing or remote history rewrite invalidates assumptions. Offline cache cannot authorize synchronization. Explicit conflict choices must be invalidated when either reviewed side changes.
+Different-file edits on different devices still conflict at collection level. Equality includes canonical paths, file hashes and validated sizes, not timestamps, roots or input ordering. Missing-file review takes precedence over equality and direction. Baseline identity includes repository ID, branch and selected local root. A changed pairing or remote history rewrite invalidates assumptions. Offline cache cannot authorize synchronization. Explicit conflict choices must be invalidated when either reviewed side changes.
 
 Choosing a complete side may remove active files absent from that side. The recoverable archival/removal policy still needs an explicit product decision before enabling that workflow; block it until decided. Preserve both complete snapshots before resolution. Never merge automatically or force a remote branch update.
 

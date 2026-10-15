@@ -28,12 +28,14 @@ mise run test
 
 ## Layout
 
-- `src/PD2Cloud.Core`: generic manifest, file, validation and future baseline models; scanner interface and portable path rules.
+- `src/PD2Cloud.Core`: generic manifests, pure collection comparison, validation and future baseline models; scanner interface and portable path rules.
 - `src/PD2Cloud.Local`: recursive inspection, read-only hashing and versioned folder settings in application data.
 - `src/PD2Cloud.Desktop`: Avalonia views, view model and native folder picker.
-- `tests/PD2Cloud.Tests`: filesystem and view-model behavior tests.
+- `tests/PD2Cloud.Tests`: comparison decision tables, filesystem and view-model behavior tests.
 
 See [folder inspection](docs/folder-inspection.md), the [implementation plan](docs/implementation-plan.md) and the [delivery tracker](docs/delivery-plan.md) for rules, limitations and remaining work. Folder selection is saved in platform application data and restored with a fresh read-only inspection on restart. Settings notices explain restoration or save failures. No authentication, remote access, baseline persistence or synchronization is implemented.
+
+Task 4 adds a pure Core comparison API for complete baseline/local/verified-remote inventories. It reports no transfer, initial upload/download, one-sided upload/download, whole-collection conflict, missing-file review or a blocking reason. Disjoint edits still conflict; missing baseline files require review even when both sides match. Unknown remote state never means empty. Comparison is not connected to the desktop and does not perform transfers or create a baseline. See the [comparison contract](docs/collection-comparison.md).
 
 The source repository is public. Future save storage will use a separate private repository.
 

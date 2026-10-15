@@ -1,6 +1,6 @@
 # Generic folder inspection
 
-Implementation reference, updated 2026-10-15. Tasks 2 and 3 are implemented; cloud synchronization is not.
+Implementation reference, updated 2026-10-15. Tasks 2–4 are implemented; cloud synchronization is not.
 
 PD2 Cloud is a generic folder synchronization engine. All regular files within the selected directory are treated as opaque binary data. The product's save-folder wording is presentation only; discovery contains no format knowledge or file-content parsing.
 
@@ -52,7 +52,7 @@ These observations are not an atomic snapshot or a lock against external writers
 
 ## Local state boundary
 
-`LocalSyncState` only defines a future successful-sync record: schema version, selected repository identity/branch, accepted Git commit, local root, file fingerprints and successful-sync timestamp. No instance is fabricated by inspection, no successful-sync state file is written or read. Folder settings use a separate persistence service. Prior folder/profile choices were in memory only, so there is no existing persisted configuration to migrate. Settings decoding retains unknown obsolete and unrelated JSON fields when updating the selected folder; obsolete fields never affect inspection. Credential storage is not implemented or touched.
+`LocalSyncState` only defines a future successful-sync record: schema version, selected repository identity/branch, accepted Git commit, local root, file fingerprints and successful-sync timestamp. No instance is fabricated by inspection or comparison, no successful-sync state file is written or read. The pure comparer can consume a supplied record; it does not persist or advance it. Folder settings use a separate persistence service. Prior folder/profile choices were in memory only, so there is no existing persisted configuration to migrate. Settings decoding retains unknown obsolete and unrelated JSON fields when updating the selected folder; obsolete fields never affect inspection. Credential storage is not implemented or touched.
 
 `ApplicationDataPaths.LocalSyncStatePath` reserves `local-sync-state.json` beneath `Environment.SpecialFolder.LocalApplicationData/PD2Cloud`, outside the source directory. Typical locations are `%LOCALAPPDATA%/PD2Cloud` on Windows, `~/Library/Application Support/PD2Cloud` on macOS and `$XDG_DATA_HOME/PD2Cloud` (usually `~/.local/share/PD2Cloud`) on Linux, as resolved by .NET. The whole application-data directory is reserved, including future staging. Folder selection and the scanner reject source roots that contain, equal or lie within that directory, even before it exists. Prefix checks respect directory boundaries and use case-insensitive comparison on Windows/macOS; the scanner also rejects linked source ancestors. Application storage with linked ancestors or a linked settings file is rejected rather than followed.
 
@@ -98,3 +98,9 @@ Native Windows/Linux execution, native picker interaction, actual process termin
 The Avalonia logging error also reproduced with the user's normal `mise run run`, so the earlier command-line statistics workaround was insufficient for daily development. `mise.toml` now sets the upstream-supported `AVALONIA_TELEMETRY_OPTOUT=1` alongside the .NET telemetry opt-out. This makes the statistics task return without attempting telemetry/log writes. No dependency or application behavior changed. Direct `dotnet` calls outside mise need the same environment variable.
 
 Verified without extra MSBuild flags: `mise run build` passed with zero warnings/errors, `mise run test` passed all 45 tests, and `mise run format:check` passed. `mise run run` built and remained running without the logging error; the verification process was then stopped with Ctrl-C. No file permissions were changed. This supersedes the need for `-p:UsedAvaloniaProducts=` in the earlier validation notes.
+
+## Comparison boundary (task 4)
+
+`CollectionInventory.Fingerprint` in Core now owns the existing schema-1 encoding. `CollectionScanner.Fingerprint` delegates to it for compatibility; inspection output and desktop behavior are unchanged. The [pure comparison contract](collection-comparison.md) requires complete valid inventories and explicit remote verification; it never uses incomplete inspection as an empty collection or fabricates a baseline.
+
+Task-4 macOS verification: standard `mise run test` passed all 97 cases, `mise run build` passed with zero warnings/errors, and `mise run format:check` passed. The 52 added cases are pure decision-table/validation tests; no UI changes or new native UI acceptance are claimed. Existing filesystem, platform and settings limitations above still apply.
