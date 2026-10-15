@@ -13,99 +13,122 @@ public sealed class MainWindowViewModelTests
         public bool Fail { get; set; }
         public Task<string?> PickAsync() => Fail ? Task.FromException<string?>(new IOException()) : Task.FromResult(Path);
     }
-
-    private sealed class Inspector : IFolderInspector
+    private sealed class Scanner : ICollectionScanner
     {
-        public List<(string Path, CancellationToken Token, TaskCompletionSource<FolderInspection> Result)> Requests { get; } = [];
-        public Task<FolderInspection> InspectAsync(string path, CancellationToken cancellationToken)
+        public List<(string Path, CancellationToken Token, TaskCompletionSource<CollectionManifest> Result)> Requests { get; } = [];
+        public Task<CollectionManifest> ScanAsync(string path, CancellationToken token)
         {
-            var result = new TaskCompletionSource<FolderInspection>();
-            Requests.Add((path, cancellationToken, result));
+            var result = new TaskCompletionSource<CollectionManifest>();
+            Requests.Add((path, token, result));
             return result.Task; // Deliberately ignores cancellation to exercise stale results.
         }
     }
-
-    private static FolderInspection Listing(string name) => new([new(name, 42, FolderEntryKind.File)]);
+    private static CollectionManifest Manifest(string? name = null, ValidationIssue? issue = null) =>
+        new(1, "/folder", name is null ? [] : [new(name, 42, new string('a', 64))], issue is null ? "hash" : null,
+            DateTimeOffset.UtcNow, issue is null, issue is null ? [] : [issue]);
 
     [Fact]
-    public async Task ChangingFolderRejectsLateSuccessAndRefreshRejectsLateFailure()
+    public async Task InitialLoadingSuccessEmptyWarningErrorAndRecovery()
     {
-        var picker = new Picker { Path = "/first" };
-        var inspector = new Inspector();
-        using var model = new MainWindowViewModel(inspector, picker);
-        var first = model.SelectFolderAsync();
-        Assert.True(model.CanSelect);
-        picker.Path = "/second";
-        var second = model.SelectFolderAsync();
-        Assert.True(inspector.Requests[0].Token.IsCancellationRequested);
-        inspector.Requests[1].Result.SetResult(Listing("second"));
-        await second;
-        inspector.Requests[0].Result.SetResult(Listing("first"));
-        await first;
-        Assert.Equal("/second", model.SelectedPath);
-        Assert.Equal("second", Assert.Single(model.Entries).Name);
-        var refresh1 = model.RefreshAsync();
-        var refresh2 = model.RefreshAsync();
-        inspector.Requests[3].Result.SetResult(Listing("new"));
-        await refresh2;
-        inspector.Requests[2].Result.SetException(new UnauthorizedAccessException());
-        await refresh1;
-        Assert.Equal("new", Assert.Single(model.Entries).Name);
-        Assert.DoesNotContain("Could not", model.Status);
+        var scanner = new Scanner();
+        using var model = new MainWindowViewModel(scanner, new Picker { Path = "/folder" });
+        Assert.True(model.IsInitial);
+        Assert.False(model.CanRefresh);
+        Assert.Null(model.Manifest);
+        var select = model.SelectFolderAsync();
+        Assert.True(model.IsBusy);
+        Assert.Empty(model.Files);
+        scanner.Requests[0].Result.SetResult(Manifest("nested/unknown"));
+        await select;
+        Assert.Equal(InspectionState.ScannedSuccessfully, model.State);
+        Assert.Equal("Scanned successfully", model.StateLabel);
+        Assert.Equal("1 file", model.CountSummary);
+        Assert.Contains("Last inspected", model.LastInspection);
+        var refresh = model.RefreshAsync();
+        Assert.Null(model.Manifest);
+        scanner.Requests[1].Result.SetResult(Manifest());
+        await refresh;
+        Assert.True(model.ShowEmpty);
+        Assert.Equal("Folder is empty.", model.Status);
+        refresh = model.RefreshAsync();
+        scanner.Requests[2].Result.SetResult(Manifest(issue: new(ValidationCode.UnsupportedEntry, "Link skipped", "link")));
+        await refresh;
+        Assert.Equal(InspectionState.NeedsAttention, model.State);
+        Assert.Single(model.Issues);
+        Assert.False(model.ShowEmpty);
+        Assert.Equal("File inventory incomplete", model.CountSummary);
+        refresh = model.RefreshAsync();
+        scanner.Requests[3].Result.SetResult(Manifest(issue: new(ValidationCode.AccessError, "Cannot access")));
+        await refresh;
+        Assert.Equal(InspectionState.Failed, model.State);
+        refresh = model.RefreshAsync();
+        scanner.Requests[4].Result.SetResult(Manifest("recovered"));
+        await refresh;
+        Assert.Equal(InspectionState.ScannedSuccessfully, model.State);
+        Assert.Equal("recovered", Assert.Single(model.Files).RelativePath);
     }
 
     [Fact]
-    public async Task PickerCancellationAndFailureKeepCurrentSelectionAndListing()
+    public async Task ChangingFolderAndOverlappingRefreshRejectLateSuccessAndFailure()
+    {
+        var picker = new Picker { Path = "/first" };
+        var scanner = new Scanner();
+        using var model = new MainWindowViewModel(scanner, picker);
+        var first = model.SelectFolderAsync();
+        picker.Path = "/second";
+        var second = model.SelectFolderAsync();
+        Assert.True(scanner.Requests[0].Token.IsCancellationRequested);
+        scanner.Requests[1].Result.SetResult(Manifest("second"));
+        await second;
+        scanner.Requests[0].Result.SetResult(Manifest("first"));
+        await first;
+        Assert.Equal("/second", model.SelectedPath);
+        Assert.Equal("second", Assert.Single(model.Files).RelativePath);
+        var refresh1 = model.RefreshAsync();
+        var refresh2 = model.RefreshAsync();
+        scanner.Requests[3].Result.SetResult(Manifest("new"));
+        await refresh2;
+        scanner.Requests[2].Result.SetException(new UnauthorizedAccessException());
+        await refresh1;
+        Assert.Equal("new", Assert.Single(model.Files).RelativePath);
+        Assert.Equal(InspectionState.ScannedSuccessfully, model.State);
+    }
+
+    [Fact]
+    public async Task PickerCancellationAndFailureKeepSelectionAndResults()
     {
         var picker = new Picker();
-        var inspector = new Inspector();
-        using var model = new MainWindowViewModel(inspector, picker);
+        var scanner = new Scanner();
+        using var model = new MainWindowViewModel(scanner, picker);
         await model.SelectFolderAsync();
-        Assert.False(model.CanRefresh);
+        Assert.True(model.IsInitial);
         Assert.Contains("cancelled", model.PickerNotice);
         picker.Path = "/folder";
         var select = model.SelectFolderAsync();
-        inspector.Requests[0].Result.SetResult(Listing("kept"));
+        scanner.Requests[0].Result.SetResult(Manifest("kept"));
         await select;
         picker.Path = null;
         await model.SelectFolderAsync();
         picker.Fail = true;
         await model.SelectFolderAsync();
         Assert.Equal("/folder", model.SelectedPath);
-        Assert.Equal("kept", Assert.Single(model.Entries).Name);
-        Assert.Single(inspector.Requests);
-        Assert.Contains("Could not select", model.PickerNotice);
+        Assert.Equal("kept", Assert.Single(model.Files).RelativePath);
+        Assert.Single(scanner.Requests);
+        Assert.Contains("Could not open", model.PickerNotice);
     }
 
     [Fact]
-    public async Task EmptyErrorAndRecoveryClearOldListing()
+    public async Task ClosingCancelsScanAndRejectsResult()
     {
-        var inspector = new Inspector();
-        using var model = new MainWindowViewModel(inspector, new Picker { Path = "/folder" });
-        var select = model.SelectFolderAsync();
-        inspector.Requests[0].Result.SetResult(Listing("old"));
-        await select;
-        var refresh = model.RefreshAsync();
-        Assert.Empty(model.Entries);
-        inspector.Requests[1].Result.SetResult(new([], "Cannot access this folder."));
-        await refresh;
-        Assert.Contains("Cannot access", model.Status);
-        refresh = model.RefreshAsync();
-        inspector.Requests[2].Result.SetResult(new([]));
-        await refresh;
-        Assert.Equal("Folder is empty.", model.Status);
-    }
-
-    [Fact]
-    public async Task ClosingCancelsScanAndRejectsItsResult()
-    {
-        var inspector = new Inspector();
-        var model = new MainWindowViewModel(inspector, new Picker { Path = "/folder" });
+        var scanner = new Scanner();
+        var model = new MainWindowViewModel(scanner, new Picker { Path = "/folder" });
         var select = model.SelectFolderAsync();
         model.Dispose();
-        Assert.True(inspector.Requests[0].Token.IsCancellationRequested);
-        inspector.Requests[0].Result.SetResult(Listing("late"));
+        Assert.True(scanner.Requests[0].Token.IsCancellationRequested);
+        scanner.Requests[0].Result.SetResult(Manifest("late"));
         await select;
-        Assert.Empty(model.Entries);
+        Assert.Empty(model.Files);
+        Assert.False(model.CanSelect);
+        Assert.False(model.CanRefresh);
     }
 }

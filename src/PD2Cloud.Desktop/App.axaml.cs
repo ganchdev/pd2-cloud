@@ -20,7 +20,7 @@ public partial class App : Application
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             var window = new MainWindow();
-            window.DataContext = new MainWindowViewModel(new FolderInspector(), new NativeFolderPicker(window.StorageProvider));
+            window.DataContext = new MainWindowViewModel(new CollectionScanner(), new NativeFolderPicker(window.StorageProvider));
             desktop.MainWindow = window;
         }
 

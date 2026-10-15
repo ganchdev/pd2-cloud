@@ -1,14 +1,12 @@
 # PD2 Cloud
 
-A desktop app for manually synchronizing Project Diablo 2 single-player saves through GitHub.
+PD2 Cloud is a generic folder synchronization engine. All regular files within the selected directory are treated as opaque binary data. GitHub-backed synchronization and version history are planned; the current application provides read-only local inspection.
 
-Select a local folder to inspect filenames and byte sizes, then Refresh after external changes. This is read-only folder inspection; save validation and synchronization come later.
-
-The proposed architecture and milestone backlog are in the [implementation plan](docs/implementation-plan.md).
+Choose **Select Folder** to inspect any physical local folder, including its subdirectories. **Refresh** reflects added, changed and removed files. File sizes, SHA-256 hashes and filesystem issues are available under **Inspection Details**. Inspection success does not mean files are synchronized with GitHub.
 
 ## Development
 
-Install [mise](https://mise.jdx.dev/getting-started.html), then from this directory run:
+Install [mise](https://mise.jdx.dev/getting-started.html), then run:
 
 ```sh
 mise trust
@@ -16,30 +14,25 @@ mise install
 mise run run
 ```
 
-The SDK is pinned to .NET `10.0.401` in both `mise.toml` and `global.json`. Avalonia packages are pinned to `12.1.4`.
-
-The run command opens the desktop app. Choose **Select folder…**, select a physical folder, then use **Refresh**. A desktop session is required.
+A desktop session is required. .NET `10.0.401` and Avalonia `12.1.4` are pinned.
 
 ```sh
-mise run restore
 mise run build
 mise run format:check
 mise run test
 ```
 
-`mise run format` applies C# formatting. CI builds, tests and checks formatting on Windows, macOS and Linux.
+`mise run format` applies C# formatting. CI builds, tests and checks formatting on Windows, macOS and Linux. Tests use synthetic binary files; no game saves are required.
 
 ## Layout
 
-- `src/PD2Cloud.Core`: inspection models and interface.
-- `src/PD2Cloud.Local`: filesystem metadata inspection on a worker thread.
-- `src/PD2Cloud.Desktop`: Avalonia views, view model and native picker adapter.
+- `src/PD2Cloud.Core`: generic manifest, file, validation and future baseline models; scanner interface and portable path rules.
+- `src/PD2Cloud.Local`: recursive inspection, read-only hashing and application-data path boundary.
+- `src/PD2Cloud.Desktop`: Avalonia views, view model and native folder picker.
 - `tests/PD2Cloud.Tests`: filesystem and view-model behavior tests.
 
-## Scope and privacy
+See [folder inspection](docs/folder-inspection.md), the [implementation plan](docs/implementation-plan.md) and the [delivery tracker](docs/delivery-plan.md) for rules, limitations and remaining work. Folder selection is not yet persisted. No authentication, remote access, baseline persistence or synchronization is implemented.
 
-Inspection lists direct children, including unrecognized files, without opening file contents or changing source files. Subfolders are not inspected. Links are flagged and skipped; selected folders with linked ancestors are rejected—select their physical location. Refresh discards superseded results.
-
-Metadata is a point-in-time listing, not a stable or validated save collection. Folder selection is not persisted. Profile detection, hashing, GitHub and synchronization are not implemented. Native picker/UI checks on macOS, Windows and Linux remain pending; automated Unix permission/link tests do not verify Windows ACLs or junctions.
+The source repository is public. Future save storage will use a separate private repository.
 
 PD2 Cloud is not affiliated with Blizzard Entertainment or Project Diablo 2.

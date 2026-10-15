@@ -1,232 +1,82 @@
-# PD2 Cloud — implementation plan
+# PD2 Cloud implementation plan
 
-Prepared 2026-10-13 against the supplied MVP specification. This is a proposed implementation design and delivery backlog, not a claim that the application has been built or validated. No existing PD2 Cloud solution was found in the workspace.
+Revised 2026-10-15. The generic folder synchronization specification supersedes the earlier format-aware discovery architecture.
 
-## 1. Technical choices
+PD2 Cloud is a generic folder synchronization engine. All regular files within the selected directory are treated as opaque binary data. It will synchronize a complete recursive file inventory as one logical snapshot through a private GitHub repository. There is no game-format parser or game configuration model.
 
-Use C# on .NET 10 LTS, Avalonia with MVVM, an injected HTTPS client, JSON manifests and local state, and SHA-256 for application fingerprints. Pin SDK and dependency versions when scaffolding. .NET 10 is supported through November 2028. [Microsoft support documentation](https://learn.microsoft.com/en-us/dotnet/core/releases-and-support)
+## Current boundaries
 
-Publish self-contained builds for `win-x64`, `osx-arm64`, `osx-x64`, and `linux-x64`. Maintain an explicit tested OS/distribution matrix; runtime identifiers alone do not establish support. Verify the selected Avalonia version against that matrix, including directory pickers and Linux desktop environments. [Avalonia platform documentation](https://docs.avaloniaui.net/docs/supported-platforms)
+Use C#/.NET 10 and Avalonia MVVM. Core holds generic models and the scanner boundary, Local implements filesystem inspection, and Desktop composes them with a native picker. Local never depends on GitHub or Desktop. Add GitHub/platform projects only when needed by implemented features. The [inspection specification](folder-inspection.md) defines schema 1, canonical paths, hashing and safety guarantees.
 
-Suggested solution boundaries:
+Task 2 implements local recursive inspection and a simple file dashboard. Inspection has no cloud state and never establishes a baseline. Task 3 will persist the selected folder outside the source tree. See the [delivery plan](delivery-plan.md).
 
-```text
-src/
-  PD2Cloud.Core/          Models, comparison rules, planning, coordinator, interfaces
-  PD2Cloud.Local/         Discovery, stable snapshots, state, backups, transactions
-  PD2Cloud.GitHub/        Device authentication, repository access, Git object APIs
-  PD2Cloud.Platform/      Credentials, process inspection, browser and OS integration
-  PD2Cloud.Desktop/       Avalonia views, view models and composition root
-tests/
-  PD2Cloud.Core.Tests/
-  PD2Cloud.Local.Tests/
-  PD2Cloud.GitHub.Tests/
-  PD2Cloud.IntegrationTests/
-docs/
-  architecture.md
-  save-profiles.md
-  recovery.md
-  release-checklist.md
-```
+## Implemented as of 2026-10-15
 
-Core has no Avalonia or platform dependencies. Concrete adapters implement Core interfaces. Desktop composes them; GitHub and Local never reference Desktop. Use xUnit for meaningful safety and behavior tests, temporary save directories, an injectable HTTP handler, and an in-memory cloud repository for two-device simulations.
-
-## 2. Decisions to encode before synchronization
-
-### Whole-collection comparison
-
-A collection is the complete recognized filename-to-content inventory plus compatibility-relevant profile fields. File presence participates in equality. Timestamps and descriptive application versions do not. An unrelated Git commit or changed upload timestamp does not constitute changed progress.
-
-Calculate differences at file level for the dashboard, then make one collection-level decision. Changes to different characters on different devices still block synchronization. Equal local and cloud collections can establish a baseline even if both differ from the old baseline, provided profiles and revision lineage pass validation.
-
-### Absence and choosing one version
-
-The specification prohibits automatic deletion but also requires choosing a complete collection. These meet when the losing collection contains files absent from the winning collection.
-
-Proposed rule: ordinary Sync All blocks any previously synchronized absence. The review offers restoration from the surviving side or an explicit choice of the complete local/cloud collection. A complete-version choice lists every file that will leave active storage and requires explicit confirmation. Preserve both complete collections first. Local removals become recoverable archival moves; cloud removals affect only the managed namespace in a new commit, preserving the old commit and a downloaded backup. Do not quietly retain extra active files, since that would construct a third collection.
-
-This explicit archival behavior is a proposed interpretation requiring a product decision before enabling the relevant workflow. Until resolved, block a complete-version choice that requires removal; all other development can proceed.
-
-### Initialization and onboarding
-
-Onboarding, startup refresh and Refresh do not write saves or repository content. Persist settings locally and inspect the cloud. Initialize a repository only during an explicit synchronization action. If both collections are empty, report that there is nothing to synchronize and avoid an unnecessary initialization commit.
-
-GitHub does not permit creating a reference in a completely empty repository through the Git references API. Use the Contents API for a small bootstrap file, then upload the complete first snapshot with the Git object APIs. The initial operation can therefore create a bootstrap commit and one save checkpoint; subsequent uploads create one checkpoint each. Never report the bootstrap alone as a successful save synchronization. [GitHub empty-repository guidance](https://docs.github.com/en/rest/guides/using-the-rest-api-to-interact-with-your-git-database), [reference creation restrictions](https://docs.github.com/en/rest/git/refs)
-
-### Save-format evidence
-
-Maintain a versioned profile policy rather than an extension wildcard. Initial confirmed PlugY families are character `.d2s`, matching personal-stash `.d2x`, and configured shared-stash `.sss` names. PlugY supports configurable stash names and distinct hardcore names; obtain those settings from user-selected configuration or advanced profile input. Treat unpaired sidecars as a validation issue rather than silently ignoring them. [PlugY documentation](https://github.com/ChaosMarc/PlugY/blob/master/PlugYInstaller/PlugY_The_Survival_Kit_-_Readme.txt), [PlugY save handling](https://github.com/ChaosMarc/PlugY/blob/master/PlugY/SavePlayerData.cpp)
-
-Native PD2 shared stash support needs its own profile. The Cain implementation reports `pd2_shared.stash` support, making it a candidate for fixture investigation, not proof of every season's filename conventions. Confirm native softcore/hardcore variants and any additional required artifacts using real game-generated fixtures before claiming profile support. [Cain implementation](https://github.com/jackmusick/cain)
-
-Classify `.map` and `.ma0`–`.ma3` as candidates for profile-specific sidecars; determine whether they are required, optional or regenerated through fixtures and gameplay checks. Exclude backups, logs, exports, temporary files and game configuration by default. Never upload unrecognized files merely because they share a directory.
-
-Persist profile ID/version, stash implementation, hardcore separation, configured stash names, and user-declared PD2/PlugY compatibility information. Filename inspection cannot reliably establish season compatibility. Record whether compatibility information is detected, declared or unknown. Block unsupported/incompatible combinations; require explicit profile selection when detection is ambiguous. An empty new-device directory needs a target profile before installation.
-
-### Game safety limits
-
-Process detection is advisory evidence, not an exclusive lock against the game. Inspect executable names and available executable paths/command lines, including Wine/Proton. Block known or suspected game activity and collection instability. An inspection failure must not be presented as verified inactivity.
-
-Recheck activity before snapshotting and before installing files; hold file handles with restrictive sharing where supported. Require the player to keep PD2 closed during Sync All. A process can start after a check, and portable APIs cannot guarantee otherwise. Tests must distinguish detection guarantees from best-effort protection. PD2 Cloud can serialize its own instances but cannot lock a game that does not cooperate.
-
-## 3. Persistent and remote data
-
-### Managed repository namespace
-
-```text
-pd2-cloud/
-  bootstrap.json          Optional empty-repository initialization marker
-  manifest.json           Current full collection inventory
-  saves/
-    <original filenames>  Unmodified binary save data
-```
-
-Choose one namespace and treat ownership markers as required. A populated repository without that namespace is eligible only after an explicit initialization confirmation. An existing ambiguous namespace is blocked. Build every new root tree from the observed head's tree, replacing only the managed subtree and preserving unrelated entries. Files absent from the desired managed inventory can be removed only after the explicit review above.
-
-Manifest fields:
-
-- Schema version, collection UUID and minimum reader compatibility.
-- Profile ID/version and compatibility-relevant settings.
-- Snapshot UUID, UTC creation time and application version.
-- Complete sorted file inventory: relative original filename, role/group, byte size and SHA-256.
-
-The manifest must not embed its own commit SHA. Resolve the manifest at an immutable commit, and obtain blob IDs from that commit's tree. Git object IDs and application SHA-256 fingerprints serve different purposes. Reject missing/extra managed saves and manifest/tree discrepancies.
-
-Read all metadata and blobs from the same pinned revision. Traverse the managed tree without accepting truncated tree results. Bound manifest size, file count, individual file sizes and total staged size. GitHub documents a 100 MB limit for blob downloads; preflight a conservative compatible upload/download limit with an actionable oversized-stash error. [GitHub blob API](https://docs.github.com/en/rest/git/blobs)
-
-### Local records
-
-Keep application state and verified backup collections outside the save discovery root. Local installation staging must be on the target filesystem for reliable per-file rename operations. Exclude its reserved directory from discovery.
-
-Use versioned JSON with durable temporary-write-and-rename replacement for each record. Couple baseline updates to the transaction journal so a crash between updates can be reconciled.
-
-| Record | Contents |
+| Area | Built behavior |
 |---|---|
-| Configuration | GitHub user ID/login, numeric repository ID plus current owner/name, branch, canonical save path, profile, preferences |
-| Baseline | Pairing ID, collection UUID, accepted revision, complete fingerprints/profile, last successful sync time |
-| Remote cache | Last verified revision/manifest and verification time; never sufficient to authorize offline sync |
-| Transaction journal | Operation UUID/type, pairing, observed head, desired inventory, candidate commit, phase, per-file progress, verified backup/staging paths |
-| Backup metadata | Original filenames and hashes, local/remote provenance, relevant revisions and collection profile |
+| Desktop workflow | Initial “Find your saves” screen, Select Folder, selected path, file count, last inspection time, Refresh and Change Folder |
+| Discovery | Recursive inclusion of every eligible regular file, with no extension filters or content parsing |
+| Manifest | Schema 1, canonical relative paths, sizes, SHA-256 file hashes and a deterministic whole-collection fingerprint |
+| Safety | Portable path validation, case/Unicode collision detection, link rejection, permission/read diagnostics and two-pass stability checks |
+| Responsiveness | Worker-thread inspection, cancellation and rejection of superseded results/errors |
+| Diagnostics | Collapsed Inspection Details with issues, excluded paths, file sizes/hashes and collection fingerprint |
+| Future baseline boundary | `LocalSyncState` record and platform application-data path only; no persistence or remote behavior |
 
-Pairing identity includes repository ID, branch, collection identity, save location and relevant profile. Switching any of these invalidates comparison. Preserve old pairing backups; do not automatically reuse its baseline for the new pairing.
+The former profile registry, format-specific inventory policies, sidecar associations, stash questions/configuration, game-version fields and their tests have been removed. The old metadata-only inspector was also removed; the desktop now uses one generic scanner interface. The read-only fingerprint reader and native folder picker were reused.
 
-Store tokens only through Windows credential facilities, macOS Keychain or a Linux Secret Service adapter. Secure-store failure clears credential persistence, retains non-secret configuration, and requests authentication when needed. No plaintext fallback. Define Disconnect as clearing local secrets and account association; offer GitHub's authorization-management page for remote revocation rather than claiming local deletion revokes the token.
+Verification on macOS passed: 29 test cases, formatting, and a Release build with zero warnings/errors. The real window was rendered and visually inspected through a temporary native harness with a test picker. Hosted CI results were not available during local verification of this refactor. CI is configured for Windows, macOS and Linux; native picker and Windows/Linux acceptance remain open.
 
-## 4. Authentication and repository access
+Task 2's implementation is complete. Task 3 is the next planned feature and has not started. Settings persistence, authentication, GitHub reads, comparison, backups, recovery and transfers remain future work. The refactor does not require game fixtures or gameplay validation.
 
-Register a GitHub App with device flow enabled, expiring user tokens, Contents read/write and Metadata read. Ship its public client ID and installation URL; do not ship a secret or private key.
+## Future comparison and synchronization
 
-Request the device code, display/copy the user code, open the supplied verification URL, and poll at GitHub's interval. Handle pending authorization, slowdown, denial, expiration and cancellation. GitHub's documented device flow does not require a client secret; refresh of device-generated user tokens also supports omitting it. [GitHub device authentication](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-a-user-access-token-for-a-github-app), [refresh documentation](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/refreshing-user-access-tokens)
+Startup and Refresh inspect only. An explicit Sync All action is the only transfer trigger; there is no automatic background sync. The future flow is:
 
-Retrieve account identity and enumerate the user's app installations and their accessible repositories, following pagination. Show private repositories with user write permission and compatible app access. Exclude archived/read-only repositories. Installation guidance and browser-based repository creation require a subsequent refresh; neither browser completion nor authorization alone proves repository access.
+1. Inspect/capture the local folder and create a deterministic manifest.
+2. Read the last successfully synchronized device baseline.
+3. Retrieve and verify one pinned immutable remote GitHub revision.
+4. Compare local, baseline and remote complete inventories.
+5. Determine upload, download, no-op, conflict or missing-file review.
+6. Synchronize the entire collection only after safety and recovery gates pass.
 
-Validate repository identity, privacy, access and branch on each sync. Stop if a repository becomes public. Explain protected-branch/ruleset rejection without bypassing protection. A missing branch in a populated repository is a configuration/setup condition, not an empty save collection.
-
-Refresh credentials through a single serialized operation and replace the secure token pair together. Retry reads with bounded backoff respecting rate-limit headers. For uncertain writes, inspect state before retrying. Redact tokens, authorization codes, HTTP authorization headers, save bytes and sensitive response bodies from diagnostics.
-
-## 5. Pure comparison and planning
-
-Input: validated baseline B (if any), current stable local collection L, verified remote collection R, and pairing/profile/revision validity. Output: file differences, collection state, blocking reasons and an immutable proposed plan.
-
-Apply validation and missing-file guards before deciding direction. Require verified cloud state for every sync. If remote lineage no longer contains the baseline, block for reconciliation; do not infer safety solely from stored hashes after a history rewrite.
-
-| Condition after validation | Collection decision |
+| Validated condition | Decision |
 |---|---|
-| L equals R | No transfer; establish/advance baseline after verification |
-| No B, only L populated | Initial upload |
-| No B, only R populated | Initial download |
-| No B, both populated and different | Initial reconciliation; choose a complete side |
-| L differs from B, R equals B | Upload |
-| L equals B, R differs from B | Download |
-| Both differ from B and L differs from R | Conflict; block every transfer |
-| A file present in B is absent on either side | Explicit missing-file review |
-| Cloud unverified, incompatible profile, unsafe file, unstable reads | Block with actionable reason |
+| Local equals remote | No transfer; baseline may advance after verification |
+| No baseline, only local populated | Initial upload |
+| No baseline, only remote populated | Initial download |
+| No baseline, both populated and different | Ask for explicit reconciliation |
+| Only local differs from baseline | Upload |
+| Only remote differs from baseline | Download |
+| Both differ and local differs from remote | Stop and ask; no automatic merge |
+| Previously synchronized file absent on either side | Explicit review; no automatic deletion propagation |
+| Unstable, unsafe, unreadable or unverified state | Block transfer |
 
-Keep per-file/character status separate from the collection decision. A character may say Synced while the collection says Conflict. Cached cloud results must visibly carry the last verification time and cannot claim current Synced. Track refresh completion and successful synchronization independently.
+Different-file edits on different devices still conflict at collection level. Equality includes paths and file hashes, not timestamps. Baseline identity includes repository ID, branch and selected local root. A changed pairing or remote history rewrite invalidates assumptions. Offline cache cannot authorize synchronization. Explicit conflict choices must be invalidated when either reviewed side changes.
 
-A conflict choice is tied to the exact reviewed local fingerprints, profile and remote revision. If any changes before application, invalidate it and present the updated review. Initial reconciliation uses the same preservation and confirmation mechanics.
+Choosing a complete side may remove active files absent from that side. The recoverable archival/removal policy still needs an explicit product decision before enabling that workflow; block it until decided. Preserve both complete snapshots before resolution. Never merge automatically or force a remote branch update.
 
-## 6. Snapshotting, upload and installation
+## Future remote storage and authentication
 
-### Stable local capture
+Keep HTTPS REST access independent of directory scanning; no Git CLI requirement or hosted backend. Use a private repository and an explicitly owned namespace containing a versioned manifest and an opaque recursive files subtree. Preserve unrelated repository entries. Validate repository identity, privacy, branch and write access on each operation. Never treat a missing branch as an empty collection.
 
-Enumerate only policy-approved files. Validate names across supported platforms, including case/Unicode collisions, Windows reserved names and trailing dots/spaces. Reject traversal, absolute paths, alternate data stream names, symlinks, junction/reparse-point escapes and non-regular files. Permit selecting a directory through a picker only after resolving and validating its target.
+Read metadata, trees and blobs from one pinned commit. Validate manifest/tree consistency, canonical paths, hashes, size/count limits and nontruncated tree responses before accepting a remote inventory. Bound resource usage and preserve original bytes. Remote path serialization follows the same portable canonical rules as local inspection.
 
-Capture files into immutable staging while hashing. Re-enumerate and compare identities, sizes and hashes across the complete collection. Abort on additions, removals or changes; use bounded retries only while the game is closed. Upload captured bytes rather than reopening mutable game files later. Recheck the local collection before reporting success; a post-capture change remains pending progress rather than silently becoming part of the baseline.
+Register a GitHub App for device flow, Contents read/write and Metadata read. Ship the public client ID, never an app secret/private key. Handle device polling, cancellation, expiry, slowdown and serialized token refresh. Store secrets in native Windows/macOS/Linux credential facilities without plaintext fallback. Disconnect removes local account credentials; remote revocation is a separate GitHub action. Real app registration and platform credential validation remain external prerequisites.
 
-### Upload
+Initialize repository contents only during explicit synchronization, with confirmation before adopting an unrelated populated repository. Empty-repository bootstrap is not a completed save upload. Upload immutable captured bytes, create a commit parented on the observed head and publish with `force: false`. A competing update requires refreshing and replanning, not reparenting blindly. Record candidate commits before publication; after lost responses inspect whether publication succeeded before retrying.
 
-1. Serialize operations for the pairing; recover existing unfinished operations first.
-2. Validate credentials, privacy, access, game state, profile, stable L and pinned R.
-3. Produce the collection plan and stop for any unresolved blocker.
-4. Persist an operation journal. Preserve both sides for explicit resolution.
-5. Create blobs for changed captured bytes; reuse unchanged blob IDs.
-6. Create the complete managed subtree and a root tree preserving unrelated content.
-7. Create one commit whose single parent is the observed remote head. Record its SHA before updating the branch.
-8. Update the reference with `force: false`.
-9. Verify publication and the uploaded snapshot. Persist the accepted snapshot baseline only after success; retain any newer local changes as pending.
+## Future local safety and recovery
 
-Non-forced updates enforce a fast-forward relationship; the API does not expose a general expected-old-head compare-and-swap parameter. A candidate parented on the observed head makes competing normal commits diverge, rejecting the stale candidate. After rejection, refresh and replan; never simply change its parent without comparing collections. [GitHub reference update semantics](https://docs.github.com/en/rest/git/refs)
+Store settings, successful-sync state and backups in platform application data, outside the selected root. Future staging must be outside the inspected tree while allowing same-filesystem installation. Reject source configurations containing app-owned state/staging. There is no reserved filename exclusion in generic discovery.
 
-After a timeout, check whether the recorded candidate is the branch head or an ancestor of it. If it was published, avoid creating a duplicate upload; inspect subsequent snapshots before choosing a baseline or proposing another action. If publication cannot be verified, retain a pending journal and report uncertainty, not success. Concurrent remote rewrites and hostile writers are outside normal fast-forward safety assumptions and must trigger conservative review.
+Use versioned durable temporary-write-and-rename records. Keep configuration, successful baseline, remote cache, backup metadata and operation journals separate. Inspection manifests are observations, never successful-sync records.
 
-### Download and local replacement
+Before any local replacement: serialize app operations, verify an immutable staged snapshot, preserve and verify the complete original inventory, and durably record the operation and per-file intent. Use same-filesystem per-file atomic replacement where available. A multi-file replacement is not atomic. Verify the final inventory before committing the baseline, and reconcile journal/baseline updates after restart.
 
-1. Pin the chosen cloud revision, download into staging, and verify every file's size and SHA-256.
-2. Revalidate game activity, target inventory, profile, available space and any reviewed decision.
-3. Create and verify a complete backup of the original local collection. For resolution, also preserve a complete verified cloud copy.
-4. Persist a durable Prepared journal containing originals, targets, hashes and backup locations.
-5. Before each mutation, durably record intent. Install through same-filesystem temporary files and atomic per-file replacement where supported; record completion.
-6. Verify the complete active inventory against the target, then persist the baseline and successful time through the journaled finalization protocol.
-7. Recheck the remote head for dashboard freshness. A newer cloud version means another refresh/plan is needed, not that the installed pinned version is corrupt.
+Recovery must be idempotent at each mutation boundary. Never overwrite external edits made after an interruption without review. Corrupted journals/backups require clear blocking recovery guidance; no speculative rollback. Preserve backups in the MVP, with no automatic pruning. Honor cancellation at safe transaction boundaries. Portable inspection does not provide a lock against external writers; future synchronization needs immutable capture and revalidation before writes.
 
-Replacing multiple files in an existing save directory is not one atomic transaction. Preserve enough verified state to finish or roll back after each possible interruption. Do not promise that a player launching PD2 during an interrupted replacement will see a coherent collection. Surface outstanding recovery before normal dashboard actions.
+## Verification and release gates
 
-Keep verified backups in MVP; do not automatically prune them. A disk-space failure aborts before mutation where possible and keeps a recoverable journal if it occurs during application. Cancellation before mutation leaves active files intact. During mutation, honor cancellation at safe boundaries and finish recovery/rollback before reporting cancellation.
+CI is configured to build, format-check and run behavior tests on Windows, macOS and Linux; the current refactor has been verified locally on macOS only. Tests use arbitrary synthetic binary fixtures. Native picker, credential storage, filesystem permissions/reparse behavior, UI and packaging require platform acceptance; CI alone does not establish all native behavior.
 
-## 7. Recovery protocol
-
-Use phases such as `Prepared`, `Applying`, `InstalledVerified`, `BaselineCommitted`, and `Completed`; uploads additionally track `ObjectsCreated`, `CommitCreated`, and `PublicationUnknown/Published`. Phase transitions and per-file intents must be durable before the associated changes.
-
-On startup, inspect journals before allowing sync or a competing instance. Verify saved original and target hashes rather than trusting phase labels. Complete a proven installation or roll back from proven backups. Finalize the baseline only for a fully verified installed/published snapshot.
-
-If active files have been edited since interruption, do not automatically restore over them. Preserve the new bytes, block further synchronization, and offer explicit recovery using the stored versions. Detect incomplete/corrupted backups or journals and provide paths and clear recovery guidance. Never perform speculative rollback from unverified backup contents.
-
-## 8. Delivery backlog and gates
-
-| Milestone | Work | Exit evidence |
-|---|---|---|
-| 1 — Foundation | Solution/CI, desktop shell, local-only dashboard, picker, profile registry, directory validation, stable discovery/hashing, versioned settings | Characters and stash grouped correctly without GitHub; read-only refresh; tested path collisions, exclusions and unstable-file behavior |
-| 2 — GitHub reads | Device auth/secure-store adapters, installation guidance, repo picker, validated pinned manifests/trees, offline cache | Real private-repo onboarding on each OS; remote listing without Git; no writes during onboarding/refresh |
-| 3 — Safe synchronization | Pure planner, pairing baselines, journal/backup/install primitives, Git object uploads, first-use initialization, conservative conflicts/missing-file blocks | Verified two-device upload/download round trip; no-op creates no commit; races reject stale uploads; interrupted writes recover |
-| 4 — Protection completion | Full initial/conflict/missing-file review, both-side preservation, stale-decision invalidation, platform fault cases and recovery UX | No transfer occurs before required confirmation/backups; tested failure at every mutation boundary |
-| 5 — Release | Complete settings/onboarding, platform packaging/signing, docs, fixtures and gameplay matrix | Supplied acceptance scenarios pass on supported platforms; signed/distributable artifacts and clear compatibility declaration |
-
-Safety primitives start in Milestone 1 and gate Milestone 3. Milestone 4 completes their coverage and user flows; it is not the first point where backups or recovery are introduced. Repository initialization writes are implemented with the synchronization gate, although repository eligibility can be delivered earlier.
-
-### First implementation slice
-
-The [delivery plan](delivery-plan.md) divides Foundation into smaller tasks and
-supersedes the earlier suggestion to scaffold all five projects first. As of
-2026-10-13, task 1 implements read-only folder selection/metadata inspection with
-only Core, Local and Desktop. Build, formatting and 10 behavior tests passed on
-macOS; test execution is wired into mise and CI. Native picker interaction and
-visual acceptance remain pending because macOS automation was denied. No validated
-save discovery, profiles, fingerprints, settings or cloud behavior is implemented.
-See the delivery plan for verification limits and the next task.
-
-## 9. Verification and release prerequisites
-
-Core tests exhaust the decision table, including equal independent changes, disjoint independent changes, profile changes, sidecar-only changes, missing files and baseline invalidation.
-
-Filesystem integration tests cover byte preservation, corrupted downloads, unsafe names/links, permissions, disk exhaustion and a crash after every journal/rename/baseline boundary. Restart tests prove recovery is idempotent and never overwrites subsequent external edits without review.
-
-Provider tests cover pagination, expiration/slowdown, refresh rotation, missing repositories/branches, public repositories, protected branches, truncated trees, stale-head rejection and lost responses after successful publication.
-
-Two-device tests run two independent local states against one cloud model. Supplement these with a disposable real private repository for device flow, installation permissions, initialization, concurrent upload rejection and byte-identical transfers. Include complete native PD2 and PlugY collections with separate hardcore/softcore stashes and OS-crossing filenames.
-
-Native release validation covers secure-store persistence/unavailability, directory pickers, running game detection under actual Windows/Wine/Proton environments, package installation and opening synchronized saves in PD2. Synthetic bytes establish transport correctness but cannot establish format/game compatibility.
-
-External prerequisites are a registered GitHub App, legitimate game-generated fixtures for each supported profile, access to the platform test environments, and signing/notarization credentials for the chosen distribution channels. Plan/foundation work can proceed without these; production GitHub and release acceptance cannot be claimed until they are supplied and validated.
-
-Release only when the supplied two-computer journey passes with complete character/stash inventories, explicit divergence handling, recoverable interruptions and no Git installation. Keep deferred features outside this implementation.
+Future transfer tests must include two-device round trips, disjoint edits/conflicts, missing files, unrelated repository content, concurrent publication, lost responses and interruption at every journal/rename/baseline boundary. Live acceptance requires a disposable private repository and registered GitHub App. Signing/notarization and tested platform environments are later release dependencies.

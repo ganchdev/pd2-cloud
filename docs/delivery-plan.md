@@ -1,131 +1,64 @@
-# PD2 Cloud — deliverable work plan
+# PD2 Cloud delivery plan
 
-Proposed on 2026-10-13. Setup is complete; task 1 is implemented with native acceptance pending.
-This breaks the [implementation plan](implementation-plan.md) into reviewable
-deliverables. Product decisions below remain open until resolved.
+Revised 2026-10-15 for generic folder synchronization. Earlier game-format inventory and gameplay evidence gates no longer apply. Deliver small reviewable chunks; build, formatting and meaningful behavior tests gate each chunk. Native behavior requires platform checks.
 
-## Delivery approach
+## Status at a glance
 
-Each chunk should be independently reviewable, buildable and demonstrable. Use one
-PR per chunk where practical; split a chunk if its safety or platform work becomes
-too large. Add projects when their first implementation needs them rather than
-scaffolding every future adapter up front.
+| Task | Implementation status | Remaining acceptance/work |
+|---|---|---|
+| Setup | Complete | Cross-platform workflow remains configured; no new hosted run for the current refactor |
+| 1. Folder selection and inspection | Implemented; listing replaced by task 2 | Native picker interaction and platform acceptance |
+| 2. Generic recursive discovery | Implemented | Native Windows/Linux checks and large-folder performance remain unverified |
+| 3. Persistent local dashboard | Not started | Folder settings, restart behavior and persistence failure handling |
+| 4–11. Comparison, cloud, recovery and distribution | Not started | See subsequent chunks below |
 
-Every chunk must pass build, formatting and relevant behavior tests. Add a test
-task and CI test execution with the first behavior tests. Record a short demo and
-known limitations. Native checks are required for platform-dependent behavior;
-passing CI alone does not establish platform support.
+The next implementation task is **task 3**. Native acceptance can be completed separately; obsolete game-profile evidence does not block further generic-folder work.
 
-## Start here: local-only collection inspection
+## Current tasks
 
-### 1. Select and inspect a save folder
+### 1. Select and inspect a folder
 
-**Demo:** Open the app, select a folder, see its path and a read-only file listing,
-then refresh after changing files outside the app.
+Implemented the desktop shell, native folder picker adapter, Refresh, empty/error states, cancellation and stale-result rejection. Task 2 replaces the direct-child metadata listing with a recursive file inventory.
 
-- Replace hello world with a small desktop shell, folder picker, empty/error
-  states and Refresh action.
-- Introduce Core and Local only as needed to keep filesystem work out of views.
-- Validate the selected directory and surface inaccessible paths and unsafe links.
-- Show filenames and sizes as an inspection listing. Do not label files as a
-  complete supported collection before a profile has validated them.
-- Keep filesystem reads off the UI thread; support cancellation and reject stale
-  results when the selected folder changes.
+Native picker interaction remains an acceptance item: earlier macOS UI automation was denied (`-1743`). Use temporary physical populated/empty folders to verify selection, cancellation, changing folders, external edits followed by Refresh, inaccessible paths and link errors. Windows/Linux native acceptance remains pending.
 
-**Done when:** A populated folder, an empty folder, cancellation and an unreadable
-folder have clear outcomes. Selection and refresh leave source files untouched.
-The native directory picker works on the development machine.
+### 2. Generic recursive discovery and fingerprinting — implemented
 
-**Progress (2026-10-13):** Implemented the desktop listing, native picker adapter,
-Refresh, empty/error/cancel states and link warnings. Core contains only inspection
-models/interface; Local reads metadata on a worker thread. Superseded scans are
-cancelled and late successes/errors are discarded. Tests cover byte/write-time
-preservation, direct-child listing, external changes, missing and inaccessible
-folders, linked roots/ancestors, dangling links, picker cancellation/failure,
-overlapping scans and closing during a scan. Test execution is wired into mise and
-all three CI jobs. No profile, hashing, persistence or sync behavior was added.
+Reimplemented according to the superseding specification:
 
-**Verification:** Release build passed with zero warnings/errors; formatting check
-and 10 behavior tests passed on macOS. Desktop process launched without reported
-startup errors. Native picker interaction and visual UI verification remain
-unverified: macOS denied Apple Events to System Events (`-1743`). Windows/Linux
-native acceptance and Windows ACL/junction checks remain pending. Unix link and
-permission fixtures are explicitly skipped on Windows. CI was updated locally but
-has not run for these uncommitted changes.
+- Include all regular files recursively; preserve bytes and canonical relative paths.
+- Generate deterministic file entries and a collection SHA-256 fingerprint.
+- Reuse read-only hashing and two complete passes with inventory/stability checks.
+- Block unsafe paths, collisions, links, unreadable entries and unstable collections.
+- Show folder, count, inspection time/status, files and Refresh/Change Folder; put diagnostics in a collapsed expander.
+- Remove the obsolete format-specific subsystem, dialogs, configuration, models and tests.
+- Define only a future `LocalSyncState` model and application-data path boundary. No baseline is written by inspection.
 
-**Limitations:** Direct children only; sizes are metadata and may change during a
-scan. The app rejects linked selected paths rather than resolving them. Link checks
-are metadata checks, not protection against adversarial path replacement. Very
-large-folder rendering and durable selection remain later work. Task 1's native
-picker acceptance gate is still open; task 2 has not started.
+Synthetic tests cover recursive arbitrary-file inventories, hashes, cross-root equality, additions/modifications/removals, portable paths, collisions, permissions, links, nonregular files, cancellation, instability, source preservation and view-model transitions. See [folder inspection](folder-inspection.md) for exact rules and limitations.
 
-### 2. Discover and fingerprint a profiled collection
+**Verification (2026-10-15):** `mise run build` passed with zero warnings/errors; `mise run format:check` passed; `mise run test` passed all 29 test cases on macOS. Filesystem collision fixtures conditionally exercise actual collisions only on volumes that can represent both names. A temporary native Avalonia harness rendered the real MainWindow with synthetic files and a test picker: initial, scanning, results, empty, warning, failure and expanded diagnostics were visually inspected, including initial/results at minimum window size. Only Inspection Details remains as an expander; there is no technical configuration form. Failed/incomplete scans show “File inventory incomplete” instead of a misleading zero count. Successful inspection is separate from cloud synchronization, which is not implemented. Captures are local review artifacts, not test infrastructure or product code.
 
-**Demo:** Choose a supported profile and see recognized characters, personal and
-shared stashes, excluded files and validation issues. Refresh reflects save edits.
+Native Windows/Linux checks and native picker interaction remain platform acceptance limitations rather than save-format gates. The harness does not establish native picker or pointer/keyboard acceptance. Avalonia build services required access outside the filesystem sandbox to their application-data log. Inspection is observational rather than an atomic snapshot; large-folder UI performance remains unverified.
 
-- Define versioned profile, file-entry, collection and validation models.
-- Implement explicit filename policies, character/sidecar association and separate
-  hardcore/softcore stash configuration. Require profile selection when ambiguous.
-- Calculate sizes and SHA-256 fingerprints with collection stability checks.
-- Reject unsafe names, case/Unicode collisions and link escapes. Report unpaired
-  sidecars and unsupported or uncertain inventory instead of silently dropping it.
-- Group recognized entries in the dashboard; distinguish inspection results from
-  a validated stable collection.
+### 3. Resume the local dashboard reliably — next, not started
 
-**Done when:** Tests cover inclusions/exclusions, custom stash names, pairing,
-  hardcore separation, byte hashes, unsafe paths and files changing during reads.
-  Read-only scans preserve source bytes. Supported game inventory is documented
-  with fixture evidence; synthetic tests alone do not establish game compatibility.
+Persist versioned non-secret folder settings in platform application data, outside the inspected tree. Restart performs inspection only. Handle malformed/older settings and unavailable paths without discarding unrelated settings or credentials. Reject source roots that contain app-owned state/staging. Test restart/failure behavior and keep the local workflow usable without GitHub.
 
-**Dependency:** Real save samples/configuration are needed before claiming a native
-PD2 or PlugY profile is complete. Model and synthetic policy work can proceed first.
+**Demo:** Select a folder, close/reopen the app, and see a fresh read-only inspection of that folder without GitHub access.
 
-### 3. Resume the local dashboard reliably
-
-**Demo:** Restart the app and reopen the configured folder/profile. Missing or
-changed folders produce an actionable state. Repeated refresh stays responsive.
-
-- Persist versioned non-secret folder/profile settings outside the save directory,
-  using temporary-write-and-rename replacement.
-- Handle malformed settings, unavailable folders and changed profile configuration.
-- Harden cancellation, overlapping refresh and large-folder behavior.
-- Document the local workflow and current profile limitations.
-
-**Done when:** Restart and failure cases are tested; startup performs inspection
-only. The local workflow can be used without GitHub or a token.
-
-**Checkpoint:** Review the local dashboard and inventory evidence before cloud work.
+**Done when:** Restart, missing/inaccessible folder, malformed settings, obsolete unknown fields and safe settings replacement are covered. Persisting a folder choice must not create or advance `LocalSyncState`; that record is reserved for a real successful synchronization.
 
 ## Subsequent chunks
 
-| Chunk | Deliverable/demo | Completion evidence and dependencies |
-|---|---|---|
-| 4. Collection comparison | A pure comparison engine produces direction, conflict and blocking reasons from baseline/local/cloud inputs. | Decision-table tests include disjoint edits, equal independent edits, missing files, profile changes and invalid pairings. No transfer execution. Depends on collection models. |
-| 5. GitHub connection | Connect an account, store credentials securely, select an accessible private repository and disconnect. | Device-flow cancellation/expiration, token refresh and secure-store failures covered. No plaintext fallback. Requires a registered GitHub App and native secure-store checks on supported OSes. |
-| 6. Read the cloud collection | Refresh shows local/cloud differences from a verified pinned revision, plus clear offline/error states. | Pagination, privacy/access checks, manifest/tree consistency, size limits and corrupt content covered. Onboarding and refresh never write repository content. Depends on 2, 4 and 5. |
-| 7. Backups and recovery | A sandbox demonstration backs up and installs a test collection, then recovers after interruption. | Immutable staged captures, verified backups, durable journals and instance serialization precede writes. Fault tests at every mutation boundary prove recovery and protect later external edits. Introduce game-activity checks with conservative handling of uncertainty. Depends on 2 and 3. |
-| 8. First safe upload | Explicit Sync All uploads a stable local collection to an empty cloud collection. | Private-repo eligibility and initialization enforced; unrelated content preserved; non-forced publication, races and uncertain responses handled. Verified baseline only after publication. No-op creates no checkpoint. Depends on 4, 6 and 7. |
-| 9. First safe download | A second device installs a verified cloud collection into an empty local target; later one-sided changes travel both ways. | Downloads are hash-verified before installation, backups/recovery gate replacement, and game checks gate capture/install. Two-device byte-identical round trip and interrupted-install tests pass. Depends on 8. |
-| 10. Conflict and missing-file review | Two devices diverge; the app blocks sync and offers an explicit complete-version review. | Preserve both collections before applying a choice; invalidate stale reviews; never merge or propagate deletions automatically. Requires the archival/removal product decision. Depends on 9. |
-| 11. Distribution and acceptance | Installable builds complete the documented two-computer journey on the supported platform matrix. | Native picker, secure storage, process inspection, packaging and gameplay checks pass with real fixtures. Documentation and recovery guidance complete. Signing/notarization depends on distribution decisions and credentials. |
+| Chunk | Deliverable and gate |
+|---|---|
+| 4. Collection comparison | Pure baseline/local/remote decision table; whole-collection conflicts and missing-file review, no transfer |
+| 5. GitHub connection | Device flow, native secure storage, private repository selection/disconnect; registered app and native tests required |
+| 6. Cloud reads | Verified pinned manifests/trees/blobs, offline/error states; no repository writes during onboarding or Refresh |
+| 7. Backups and recovery | Immutable capture, verified backups, durable journals and serialized operations; interruption tests before enabling source writes |
+| 8. First safe upload | Explicit Sync All, private-repo checks, managed namespace, unrelated-content preservation and non-forced publication |
+| 9. First safe download | Verified install into an empty target, then one-sided changes both ways; byte-identical two-device and recovery tests |
+| 10. Conflict/missing-file review | Preserve both snapshots, explicit complete-side choice and stale-review invalidation; archival/removal decision required |
+| 11. Distribution and acceptance | Native UI/picker, credentials, filesystem behavior, packaging and complete two-computer acceptance on the tested platform matrix |
 
-Chunks 7 and 10 need small internal steps if their fault coverage or review UI grows.
-Do not enable live replacement until chunk 7's recovery gate passes. Until chunk 10,
-initial reconciliation, divergence and previously synchronized missing files remain
-blocked with explanations.
-
-## Decisions and external inputs
-
-- **Save inventory:** Obtain representative native PD2 and/or PlugY saves and their
-  configuration, including softcore/hardcore stashes. Start with the profile the
-  user actually plays; do not guess support for other variants.
-- **Complete-version choice:** Agree on recoverable archival of files absent from
-  the winning collection before implementing removal in chunk 10.
-- **GitHub App:** Register device-flow access and selected private-repository
-  permissions before chunk 5's live acceptance.
-- **Platform support:** Identify available Windows, macOS and Linux native test
-  environments before making support claims. Release credentials are needed later.
-
-Next: complete task 1 native picker/UI acceptance, then review task 2 inventory
-evidence and profile requirements before implementing validated discovery.
+No automatic background synchronization, automatic merging or automatic deletion propagation. GitHub functionality is not implemented as part of task 2. No real game fixtures are required for generic discovery.

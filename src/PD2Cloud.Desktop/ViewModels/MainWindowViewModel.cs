@@ -1,35 +1,57 @@
 using System.ComponentModel;
-using System.Runtime.CompilerServices;
 using PD2Cloud.Core;
 using PD2Cloud.Desktop.Services;
 
 namespace PD2Cloud.Desktop.ViewModels;
 
-public sealed class MainWindowViewModel(IFolderInspector inspector, IFolderPicker picker) : INotifyPropertyChanged, IDisposable
+public enum InspectionState { Initial, Scanning, ScannedSuccessfully, NeedsAttention, Failed }
+
+public sealed class MainWindowViewModel(ICollectionScanner scanner, IFolderPicker picker) : INotifyPropertyChanged, IDisposable
 {
     private CancellationTokenSource? scan;
     private long generation;
     private bool disposed;
     private bool picking;
     private string? selectedPath;
-    private string status = "Select a folder to inspect its filenames and sizes.";
     private string pickerNotice = "";
-    private IReadOnlyList<FolderEntry> entries = [];
+    private string status = "Select your save folder to get started.";
+    private InspectionState state;
+    private CollectionManifest? manifest;
 
     public event PropertyChangedEventHandler? PropertyChanged;
-    public string? SelectedPath { get => selectedPath; private set => Set(ref selectedPath, value); }
-    public string Status { get => status; private set => Set(ref status, value); }
-    public string PickerNotice { get => pickerNotice; private set => Set(ref pickerNotice, value); }
-    public IReadOnlyList<FolderEntry> Entries { get => entries; private set => Set(ref entries, value); }
-    public bool CanRefresh => SelectedPath is not null;
-    public bool CanSelect => !picking;
+    public string? SelectedPath => selectedPath;
+    public string PickerNotice => pickerNotice;
+    public string Status => status;
+    public InspectionState State => state;
+    public CollectionManifest? Manifest => manifest;
+    public IReadOnlyList<FileEntry> Files => manifest?.Files ?? [];
+    public IReadOnlyList<ValidationIssue> Issues => manifest?.Issues ?? [];
+    public string? CollectionFingerprint => manifest?.CollectionFingerprint;
+    public bool IsInitial => selectedPath is null;
+    public bool HasFolder => !IsInitial;
+    public bool IsBusy => state == InspectionState.Scanning;
+    public bool HasPickerNotice => pickerNotice.Length > 0;
+    public bool CanRefresh => HasFolder && !disposed;
+    public bool CanSelect => !picking && !disposed;
+    public bool HasInspection => manifest is not null;
+    public bool ShowEmpty => manifest?.IsValid == true && Files.Count == 0;
+    public string CountSummary => manifest?.IsValid == true ? $"{Files.Count} {(Files.Count == 1 ? "file" : "files")}" : "File inventory incomplete";
+    public string LastInspection => manifest is null ? "" : $"Last inspected {manifest.InspectedAt.ToLocalTime():g}";
+    public string StateLabel => state switch
+    {
+        InspectionState.Scanning => "Scanning",
+        InspectionState.ScannedSuccessfully => "Scanned successfully",
+        InspectionState.NeedsAttention => "Needs attention",
+        InspectionState.Failed => "Failed",
+        _ => ""
+    };
 
     public async Task SelectFolderAsync()
     {
-        if (picking || disposed) return;
+        if (!CanSelect) return;
         picking = true;
-        OnPropertyChanged(nameof(CanSelect));
-        PickerNotice = "";
+        pickerNotice = "";
+        Notify();
         string? path;
         try
         {
@@ -37,54 +59,64 @@ public sealed class MainWindowViewModel(IFolderInspector inspector, IFolderPicke
             if (disposed) return;
             if (path is null)
             {
-                PickerNotice = SelectedPath is null ? "Folder selection cancelled." :
-                    "Folder selection cancelled. Current selection kept.";
+                pickerNotice = "Folder selection cancelled. Current selection kept.";
                 return;
             }
         }
         catch (Exception)
         {
-            if (!disposed)
-                PickerNotice = "Could not select a local folder. Check desktop picker availability and try again.";
+            if (!disposed) pickerNotice = "Could not open the folder chooser. Please try again.";
             return;
         }
         finally
         {
             picking = false;
-            OnPropertyChanged(nameof(CanSelect));
+            Notify();
         }
-        SelectedPath = path;
-        OnPropertyChanged(nameof(CanRefresh));
+        selectedPath = path;
         await RefreshAsync();
     }
 
     public async Task RefreshAsync()
     {
-        if (SelectedPath is null || disposed) return;
+        if (!CanRefresh) return;
         scan?.Cancel();
         var current = new CancellationTokenSource();
         scan = current;
         var request = ++generation;
-        Entries = [];
-        Status = "Inspecting folder…";
+        manifest = null;
+        state = InspectionState.Scanning;
+        status = "Inspecting your files…";
+        Notify();
         try
         {
-            var result = await inspector.InspectAsync(SelectedPath, current.Token);
+            var result = await scanner.ScanAsync(selectedPath!, current.Token);
             if (disposed || request != generation) return;
-            Entries = result.Entries;
-            Status = result.Error ?? (Entries.Count == 0 ? "Folder is empty." :
-                $"{Entries.Count} entries. Links are skipped; subfolders are not inspected.");
+            manifest = result;
+            state = result.IsValid ? InspectionState.ScannedSuccessfully :
+                result.Issues.Any(i => i.Code is ValidationCode.FolderError or ValidationCode.AccessError or ValidationCode.ReadError)
+                    ? InspectionState.Failed : InspectionState.NeedsAttention;
+            status = state switch
+            {
+                InspectionState.ScannedSuccessfully => result.Files.Count == 0 ? "Folder is empty." : "Inspection complete.",
+                InspectionState.Failed => "Could not finish inspection. Check access and Refresh.",
+                _ => "Inspection needs attention. Review the details and Refresh."
+            };
         }
         catch (OperationCanceledException) when (current.IsCancellationRequested) { }
         catch (Exception)
         {
             if (!disposed && request == generation)
-                Status = "Could not inspect this folder. Check access and Refresh to retry.";
+            {
+                state = InspectionState.Failed;
+                status = "Could not inspect this folder. Check access and Refresh.";
+            }
         }
         finally
         {
             if (ReferenceEquals(scan, current)) scan = null;
             current.Dispose();
+            if (!disposed && request == generation) Notify();
         }
     }
 
@@ -93,14 +125,9 @@ public sealed class MainWindowViewModel(IFolderInspector inspector, IFolderPicke
         disposed = true;
         ++generation;
         scan?.Cancel();
+        Notify();
     }
 
-    private void Set<T>(ref T field, T value, [CallerMemberName] string? name = null)
-    {
-        field = value;
-        OnPropertyChanged(name);
-    }
-
-    private void OnPropertyChanged([CallerMemberName] string? name = null) =>
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+    // All derived screen properties change together at inspection/picker boundaries.
+    private void Notify() => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(null));
 }

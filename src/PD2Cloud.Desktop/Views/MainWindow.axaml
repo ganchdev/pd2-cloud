@@ -2,40 +2,73 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:PD2Cloud.Desktop.ViewModels"
         xmlns:core="using:PD2Cloud.Core"
-        x:Class="PD2Cloud.Desktop.Views.MainWindow"
-        x:DataType="vm:MainWindowViewModel"
-        Title="PD2 Cloud" Width="780" Height="520"
-        MinWidth="520" MinHeight="360" WindowStartupLocation="CenterScreen">
-    <Grid Margin="24" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,*" RowSpacing="12">
-        <TextBlock Text="PD2 Cloud" FontSize="24" FontWeight="SemiBold" />
-        <TextBlock Grid.Row="1" Text="Folder inspection · read only · saves have not been validated"
-                   TextWrapping="Wrap" />
-        <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="12">
-            <Button Content="Select folder…" Click="SelectFolder_Click" IsEnabled="{Binding CanSelect}" />
-            <Button Content="Refresh" Click="Refresh_Click" IsEnabled="{Binding CanRefresh}" />
-        </StackPanel>
-        <SelectableTextBlock Grid.Row="3" Text="{Binding SelectedPath}" TextWrapping="Wrap" />
-        <TextBlock Grid.Row="4" Text="{Binding PickerNotice}" TextWrapping="Wrap" />
-        <TextBlock Grid.Row="5" Text="{Binding Status}" TextWrapping="Wrap" />
-        <Grid Grid.Row="6" RowDefinitions="Auto,*">
-            <Grid ColumnDefinitions="*,130,210" Margin="8,0,8,8">
-                <TextBlock Text="Name" FontWeight="SemiBold" />
-                <TextBlock Grid.Column="1" Text="Size" FontWeight="SemiBold" />
-                <TextBlock Grid.Column="2" Text="Details" FontWeight="SemiBold" />
-            </Grid>
-            <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled">
-                <ItemsControl ItemsSource="{Binding Entries}">
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate x:DataType="core:FolderEntry">
-                            <Grid ColumnDefinitions="*,130,210" Margin="8,6">
-                                <SelectableTextBlock Text="{Binding Name}" TextWrapping="Wrap" />
-                                <TextBlock Grid.Column="1" Text="{Binding SizeDisplay}" />
-                                <TextBlock Grid.Column="2" Text="{Binding Description}" TextWrapping="Wrap" />
-                            </Grid>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
-            </ScrollViewer>
-        </Grid>
+        x:Class="PD2Cloud.Desktop.Views.MainWindow" x:DataType="vm:MainWindowViewModel"
+        Title="PD2 Cloud" Width="760" Height="680" MinWidth="520" MinHeight="440"
+        WindowStartupLocation="CenterScreen">
+    <Grid Margin="24" RowDefinitions="Auto,*" RowSpacing="24">
+        <TextBlock Text="PD2 Cloud" FontSize="22" FontWeight="SemiBold" />
+        <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Spacing="20">
+                <StackPanel IsVisible="{Binding IsInitial}" Spacing="16" Margin="0,12,0,20">
+                    <TextBlock Text="Find your saves" FontSize="30" FontWeight="SemiBold" TextWrapping="Wrap" />
+                    <TextBlock Text="Select the folder where Project Diablo 2 stores your single-player saves." TextWrapping="Wrap" FontSize="15" />
+                    <Button Content="Select Folder" Click="SelectFolder_Click" IsEnabled="{Binding CanSelect}"
+                            FontSize="16" Padding="24,14" HorizontalAlignment="Left" />
+                </StackPanel>
+                <TextBlock Text="{Binding PickerNotice}" TextWrapping="Wrap" IsVisible="{Binding HasPickerNotice}" />
+                <StackPanel IsVisible="{Binding HasFolder}" Spacing="16">
+                    <TextBlock Text="Your files" FontSize="26" FontWeight="SemiBold" />
+                    <SelectableTextBlock Text="{Binding SelectedPath}" TextWrapping="Wrap" Opacity="0.7" />
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <Button Content="Refresh" Click="Refresh_Click" IsEnabled="{Binding CanRefresh}" />
+                        <Button Content="Change Folder" Click="SelectFolder_Click" IsEnabled="{Binding CanSelect}" />
+                    </StackPanel>
+                    <TextBlock Text="{Binding StateLabel}" FontWeight="SemiBold" />
+                    <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsBusy}" Height="3" />
+                    <TextBlock Text="{Binding Status}" TextWrapping="Wrap" />
+                    <StackPanel IsVisible="{Binding HasInspection}" Spacing="6">
+                        <TextBlock Text="{Binding CountSummary}" />
+                        <TextBlock Text="{Binding LastInspection}" Opacity="0.7" />
+                        <TextBlock Text="No files in this folder." IsVisible="{Binding ShowEmpty}" />
+                    </StackPanel>
+                    <ItemsControl ItemsSource="{Binding Files}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="core:FileEntry">
+                                <SelectableTextBlock Text="{Binding RelativePath}" TextWrapping="Wrap" Margin="0,4" />
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <Expander Header="Inspection Details" IsExpanded="False" HorizontalAlignment="Stretch" IsVisible="{Binding HasInspection}">
+                        <StackPanel Spacing="12">
+                            <TextBlock Text="Validation issues and excluded entries" FontWeight="SemiBold" />
+                            <ItemsControl ItemsSource="{Binding Issues}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="core:ValidationIssue">
+                                        <StackPanel Margin="0,4" Spacing="3">
+                                            <SelectableTextBlock Text="{Binding RelativePath}" TextWrapping="Wrap" />
+                                            <TextBlock Text="{Binding Message}" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <TextBlock Text="File sizes (bytes) and SHA-256" FontWeight="SemiBold" />
+                            <ItemsControl ItemsSource="{Binding Files}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="core:FileEntry">
+                                        <StackPanel Margin="0,6" Spacing="3">
+                                            <SelectableTextBlock Text="{Binding RelativePath}" TextWrapping="Wrap" />
+                                            <TextBlock Text="{Binding SizeBytes}" Opacity="0.7" />
+                                            <SelectableTextBlock Text="{Binding Sha256}" TextWrapping="Wrap" FontSize="11" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <TextBlock Text="Collection fingerprint" FontWeight="SemiBold" />
+                            <SelectableTextBlock Text="{Binding CollectionFingerprint}" TextWrapping="Wrap" FontSize="11" />
+                        </StackPanel>
+                    </Expander>
+                </StackPanel>
+            </StackPanel>
+        </ScrollViewer>
     </Grid>
 </Window>
