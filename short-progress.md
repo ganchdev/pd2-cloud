@@ -32,13 +32,14 @@ safe-upload.md, repository-bootstrap.md, backups-recovery.md, delivery-plan.md,
 implementation-plan.md and cloud-reads.md. Inspect implementation, tests and Git
 status.
 
-Base commit: 7128e2f on main (task 8 successful-sync state: versioned
-LocalSyncStateStore, journal/baseline reconciliation, verified baseline
-ancestry), on top of the pushed task-8 publication-engine commit 388fbe0. The
-explicit desktop reviewed upload and read-only recovery integration, and the
-explicit repository initialization/adoption bootstrap, are implemented on top
-of that but are still uncommitted. All 367 tests, Release build (zero
-warnings/errors), formatting and diff checks pass on macOS.
+Base commit: de062ae on main (`feat: initialize repositories for reviewed
+initial uploads`), committed and pushed on top of 7128e2f (task 8
+successful-sync state) and the task-8 publication-engine commit 388fbe0. That
+commit contains the explicit desktop reviewed upload and read-only recovery
+integration, the explicit repository initialization/adoption bootstrap, and the
+unborn Contents API seed fix. The tracked tree is clean and main matches
+origin/main. All 367 tests, Release build (zero warnings/errors), formatting and
+diff checks pass on macOS.
 
 Item 6 (repository initialization/adoption) is complete: `CollectionUploader`
 now accepts a reviewed `RepositoryBootstrapCase` for unborn (Contents API seed
