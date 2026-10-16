@@ -27,7 +27,7 @@ public sealed class CollectionComparisonTests
     private static CollectionManifest Manifest(FileEntry[] files, string root = "local-root") =>
         new(1, root, files, CollectionInventory.Fingerprint(files), DateTimeOffset.UnixEpoch, true, []);
     private static LocalSyncState Baseline(string state = "base") =>
-        new(1, Pairing.RepositoryIdentity, Pairing.Branch, "accepted-commit", Pairing.LocalRootPath, Files(state), DateTimeOffset.UnixEpoch);
+        new(1, Pairing.RepositoryIdentity, Pairing.Branch, "accepted-commit", Pairing.LocalRootPath, Files(state), DateTimeOffset.UnixEpoch, CollectionInventory.Fingerprint(Files(state)));
     private static RemoteCollection Remote(string state) =>
         new(Pairing.RepositoryIdentity, Pairing.Branch, "new-commit", Manifest(state, "remote-root"), RemoteVerification.Verified, BaselineHistory.ContainsBaseline);
 

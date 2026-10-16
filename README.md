@@ -29,20 +29,20 @@ mise run test
 ## Layout
 
 - `src/PD2Cloud.Core`: generic manifests, pure collection comparison, validation and future baseline models; scanner interface and portable path rules.
-- `src/PD2Cloud.Local`: recursive inspection, read-only hashing, folder settings and local capture/backup/recovery preparation in application data.
+- `src/PD2Cloud.Local`: recursive inspection, read-only hashing, folder settings, local capture/backup/recovery preparation and successful-sync state persistence in application data.
 - `src/PD2Cloud.GitHub`: device authorization, serialized token refresh, private repository metadata selection, bounded Git object reads and internal non-forced publication primitives.
 - `src/PD2Cloud.Remote`: pinned Git verification, repository classification and coordinated initial-upload/recovery, bridging GitHub/Core/Local.
 - `src/PD2Cloud.Platform`: native Keychain, Credential Manager and Linux Secret Service credential adapters.
 - `src/PD2Cloud.Desktop`: Avalonia views, independent inspection/connection view models and native folder picker.
 - `tests/PD2Cloud.Tests`: comparison decision tables, filesystem and view-model behavior tests.
 
-See [folder inspection](docs/folder-inspection.md), [verified cloud reads](docs/cloud-reads.md), the [implementation plan](docs/implementation-plan.md) and the [delivery tracker](docs/delivery-plan.md) for rules, limitations and remaining work. Folder selection is saved in platform application data and restored with a fresh read-only inspection on restart. Settings notices explain restoration or save failures. GitHub access stays separate from filesystem inspection; desktop transfers and successful-sync persistence remain unimplemented.
+See [folder inspection](docs/folder-inspection.md), [verified cloud reads](docs/cloud-reads.md), the [implementation plan](docs/implementation-plan.md) and the [delivery tracker](docs/delivery-plan.md) for rules, limitations and remaining work. Folder selection is saved in platform application data and restored with a fresh read-only inspection on restart. Settings notices explain restoration or save failures. GitHub access stays separate from filesystem inspection; desktop transfers remain unimplemented. Successful-sync persistence now stores the pinned remote revision, verified collection fingerprint and local/remote pairing.
 
 Core compares complete baseline/local/verified-remote inventories. Disjoint edits still conflict; missing baseline files require review even when both sides match. Unknown remote state never means empty. Task 6 connects verified managed collections to advisory desktop comparison without a baseline. Matching files do not establish successful synchronization. Empty uninitialized, unrelated and incompatible repositories cannot supply a fabricated verified collection. See the [comparison contract](docs/collection-comparison.md) and [remote storage format and limits](docs/cloud-reads.md).
 
 Task 7 adds [immutable capture, verified complete backups and durable recovery journals](docs/backups-recovery.md) through a local-only API. It serializes preparation/assessment across store instances and cooperating processes, preserves all evidence and blocks interrupted, corrupt or changed-source reuse. The desktop does not invoke this API yet; Sync All stays disabled. No source replacement, automatic restore or baseline persistence exists.
 
-Task 8 adds the [safe-upload publication engine](docs/safe-upload.md): explicit repository/branch/pinned-head binding, byte revalidation, durable candidate/receipt records, non-forced publication and lost-response/concurrent-update recovery. It supports only a populated capture into an already verified empty managed collection. No implicit initialization/adoption exists. **Sync All remains disabled** while successful-sync persistence, baseline ancestry and desktop recovery/review integration remain open. Publication is never reported as successful synchronization.
+Task 8 adds the [safe-upload publication engine](docs/safe-upload.md): explicit repository/branch/pinned-head binding, byte revalidation, durable candidate/receipt records, non-forced publication and lost-response/concurrent-update recovery. It supports only a populated capture into an already verified empty managed collection. No implicit initialization/adoption exists. Successful-sync persistence now stores the pinned remote revision, verified collection fingerprint and local/remote pairing. **Sync All remains disabled** while baseline ancestry and desktop recovery/review integration remain open. Publication is never reported as successful synchronization.
 
 The source repository is public. Storage selection requires a separate private repository.
 

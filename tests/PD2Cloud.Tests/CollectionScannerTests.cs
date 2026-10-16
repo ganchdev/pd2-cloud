@@ -255,7 +255,7 @@ public sealed class CollectionScannerTests : IDisposable
     [Fact]
     public void FutureStateBoundaryIgnoresObsoleteExtraFieldsAndPreservesUnrelatedValues()
     {
-        var json = """{"SchemaVersion":1,"RepositoryIdentity":"repo-id","Branch":"main","LastSynchronizedCommit":"commit","LocalRootPath":"/saves","Files":[],"SynchronizedAt":"2026-10-15T10:00:00Z","Profile":{"StashSystem":"obsolete"},"GameVersion":"obsolete"}""";
+        var json = """{"SchemaVersion":1,"RepositoryIdentity":"repo-id","Branch":"main","LastSynchronizedCommit":"commit","LocalRootPath":"/saves","Files":[],"SynchronizedAt":"2026-10-15T10:00:00Z","CollectionFingerprint":"","Profile":{"StashSystem":"obsolete"},"GameVersion":"obsolete"}""";
         var state = JsonSerializer.Deserialize<LocalSyncState>(json)!;
         Assert.Equal("repo-id", state.RepositoryIdentity);
         Assert.Equal("commit", state.LastSynchronizedCommit);

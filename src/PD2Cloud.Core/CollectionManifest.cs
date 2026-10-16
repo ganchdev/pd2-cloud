@@ -16,4 +16,5 @@ public interface ICollectionScanner
 
 /// <summary>Future successful-sync record. Inspection alone must never create this record.</summary>
 public sealed record LocalSyncState(int SchemaVersion, string RepositoryIdentity, string Branch,
-    string LastSynchronizedCommit, string LocalRootPath, IReadOnlyList<FileEntry> Files, DateTimeOffset SynchronizedAt);
+    string LastSynchronizedCommit, string LocalRootPath, IReadOnlyList<FileEntry> Files, DateTimeOffset SynchronizedAt,
+    string CollectionFingerprint);
