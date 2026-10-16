@@ -20,6 +20,22 @@ public static class CloudStorage
     public const int MaxManifestBytes = 512 * 1024;
     public const long MaxCollectionBytes = 64 * 1024 * 1024;
 
+    public static string TreeId(IEnumerable<GitTreeEntry> entries)
+    {
+        using var content = new MemoryStream();
+        var ordered = entries.Select(e => (Entry: e, Key: Encoding.UTF8.GetBytes(e.Path + (e.Type == "tree" ? "/" : ""))))
+            .OrderBy(e => e.Key, Comparer<byte[]>.Create((a, b) => a.AsSpan().SequenceCompareTo(b)));
+        foreach (var item in ordered)
+        {
+            content.Write(Encoding.UTF8.GetBytes((item.Entry.Type == "tree" ? "40000" : item.Entry.Mode) + " " + item.Entry.Path + "\0"));
+            content.Write(Convert.FromHexString(item.Entry.Sha));
+        }
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA1);
+        hash.AppendData(Encoding.ASCII.GetBytes("tree " + content.Length.ToString(CultureInfo.InvariantCulture) + "\0"));
+        hash.AppendData(content.GetBuffer().AsSpan(0, (int)content.Length));
+        return Convert.ToHexStringLower(hash.GetHashAndReset());
+    }
+
     public static string BlobId(byte[] bytes)
     {
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA1);

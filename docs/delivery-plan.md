@@ -14,9 +14,10 @@ Revised 2026-10-16 for generic folder synchronization. Earlier game-format inven
 | 5. GitHub connection | Implemented; live acceptance pending | Verify configured app registration, live device/token/repository checks and remaining native platform gates |
 | 6. Cloud reads | Implemented; live acceptance pending | Pinned verification, classification and advisory desktop comparison; see [cloud reads](cloud-reads.md) |
 | 7. Backups and recovery | Implemented as a local preparation/assessment API | No desktop invocation or source replacement; see [backups and recovery](backups-recovery.md) |
-| 8–11. Transfers and distribution | Not started | See subsequent chunks below |
+| 8. First safe upload | Publication/recovery API implemented; desktop gate remains open | Successful-sync persistence, baseline ancestry and explicit desktop recovery/review integration; [contract](safe-upload.md) |
+| 9–11. Download, review and distribution | Not started | See subsequent chunks below |
 
-Task 7 is implemented within its local-only safety boundary. The next planned task is **task 8 (first safe upload)**, only with separate direction and its additional write gates. Task 5 live acceptance gates are tracked in [GitHub connection](github-connection.md). Native acceptance can be completed separately; obsolete game-profile evidence does not block further generic-folder work.
+Task 7 is implemented within its local-only safety boundary. Task 8 now has a bounded initial-upload engine with durable publication recovery; **Sync All remains disabled** until the remaining successful-sync and desktop gates pass. No end-to-end task-8 completion is claimed. Task 5 live acceptance gates are tracked in [GitHub connection](github-connection.md). Native acceptance can be completed separately; obsolete game-profile evidence does not block further generic-folder work.
 
 ## Implementation history
 
@@ -89,9 +90,15 @@ Task-7 macOS validation: all **260 tests** pass (52 new cases, including abrupt 
 | 5. GitHub connection | Implemented; registered app/live checks and remaining native acceptance required (see above) |
 | 6. Cloud reads | Implemented: pinned manifests/trees/blobs, classifications, bounded offline/error states and advisory comparison. No source/repository writes; live acceptance pending |
 | 7. Backups and recovery | Implemented: immutable capture, independently verified complete backups, strict durable journals, serialized preparation/assessment and interruption/subprocess tests. Source writes remain disabled |
-| 8. First safe upload | Explicit Sync All, private-repo checks, managed namespace, unrelated-content preservation and non-forced publication |
+| 8. First safe upload | Publication API implemented: pinned initial managed-empty uploads, coordinated capture revalidation, retained candidate/receipt evidence and non-forced publication. Explicit desktop Sync All, successful-sync state/ancestry and live acceptance remain gated; see [contract](safe-upload.md) |
 | 9. First safe download | Verified install into an empty target, then one-sided changes both ways; byte-identical two-device and recovery tests |
 | 10. Conflict/missing-file review | Preserve both snapshots, explicit complete-side choice and stale-review invalidation; archival/removal decision required |
 | 11. Distribution and acceptance | Native UI/picker, credentials, filesystem behavior, packaging and complete two-computer acceptance on the tested platform matrix |
 
 No automatic background synchronization, automatic merging or automatic deletion propagation. GitHub functionality is not implemented as part of task 2. No real game fixtures are required for generic discovery.
+
+## Task-8 publication engine (2026-10-16)
+
+See [safe upload](safe-upload.md) for the exact supported initial-upload boundary, durable record schema and recovery outcomes. No source writes, downloads, implicit initialization/adoption, merge/deletion or background sync were added. Published is remote publication evidence only; no baseline is persisted or synchronization success claimed.
+
+Task-8 engine validation on macOS: **304 tests** pass (44 new upload cases), standard Release build passes with zero warnings/errors, formatting and diff checks pass. No live writes, Windows/Linux execution, hosted CI or new desktop rendering is claimed.

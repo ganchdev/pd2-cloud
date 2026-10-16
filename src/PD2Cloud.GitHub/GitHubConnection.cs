@@ -3,7 +3,7 @@ using System.Text.Json;
 namespace PD2Cloud.GitHub;
 
 // All credential mutation and rotation share one gate, including disconnect.
-public sealed class GitHubConnection(GitHubApi api, ICredentialStore store, TimeProvider? timeProvider = null)
+public sealed partial class GitHubConnection(GitHubApi api, ICredentialStore store, TimeProvider? timeProvider = null)
 {
     private readonly SemaphoreSlim gate = new(1, 1);
     private readonly TimeProvider clock = timeProvider ?? TimeProvider.System;

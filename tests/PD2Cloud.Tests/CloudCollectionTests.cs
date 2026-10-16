@@ -20,7 +20,7 @@ public sealed class CloudCollectionTests
     private static string Id(string kind, byte[] bytes) => Convert.ToHexStringLower(SHA1.HashData(
         Encoding.ASCII.GetBytes($"{kind} {bytes.Length}\0").Concat(bytes).ToArray()));
     private static string Sha256(byte[] bytes) => Convert.ToHexStringLower(SHA256.HashData(bytes));
-    private sealed class Fixture
+    internal sealed class Fixture
     {
         public readonly Dictionary<string, (string Mode, byte[] Bytes)> Files = new(StringComparer.Ordinal);
         public JsonObject Manifest;

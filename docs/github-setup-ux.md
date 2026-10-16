@@ -1,5 +1,7 @@
 # GitHub setup and Settings UX
 
+Current task-8 extension: [safe upload](safe-upload.md) adds a coordinated initial-upload/publication-recovery API with repository/branch/pinned-head binding and durable candidate records. The desktop remains read-only with Sync All disabled. Successful-sync persistence and baseline ancestry remain unimplemented; publication does not establish synchronization success. Earlier task-specific transfer limitations below describe their original delivery boundary. Live GitHub and native acceptance remain open.
+
 Implemented 2026-10-16. This replaces the single combined inspection/connection panel with a dark Avalonia desktop workflow. Task 6 now extends this journey with [verified cloud reads](cloud-reads.md) and advisory comparison. Transfers and successful-sync persistence remain unimplemented.
 
 ## Navigation and saved progress

@@ -1,5 +1,7 @@
 # Immutable capture, backups and recovery
 
+Current task-8 extension: [safe upload](safe-upload.md) adds a coordinated initial-upload/publication-recovery API with repository/branch/pinned-head binding and durable candidate records. The desktop remains read-only with Sync All disabled. Successful-sync persistence and baseline ancestry remain unimplemented; publication does not establish synchronization success. Earlier task-specific transfer limitations below describe their original delivery boundary. Live GitHub and native acceptance remain open.
+
 Task 7 implementation contract, 2026-10-16. `OperationPreparationStore` in Local provides local preparation and recovery assessment. It is deliberately not connected to desktop startup, Refresh or Sync All. The desktop still performs read-only inspection and advisory comparison. There are no transfers, source replacements, automatic restores, cleanup or successful-sync writes.
 
 ## Preparation contract

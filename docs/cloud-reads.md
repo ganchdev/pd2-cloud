@@ -1,5 +1,7 @@
 # Verified cloud reads
 
+Current task-8 extension: [safe upload](safe-upload.md) adds a coordinated initial-upload/publication-recovery API with repository/branch/pinned-head binding and durable candidate records. The desktop remains read-only with Sync All disabled. Successful-sync persistence and baseline ancestry remain unimplemented; publication does not establish synchronization success. Earlier task-specific transfer limitations below describe their original delivery boundary. Live GitHub and native acceptance remain open.
+
 Task 6 implementation contract, 2026-10-16. Cloud inspection is read-only. It classifies the selected private repository and supplies Core comparison only with a complete verified managed collection. It never initializes a repository, uploads/downloads into a folder, records a successful synchronization or persists a remote cache.
 
 ## Boundaries and triggers

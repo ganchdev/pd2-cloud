@@ -1,5 +1,7 @@
 # Pure collection comparison
 
+Current task-8 extension: [safe upload](safe-upload.md) adds a coordinated initial-upload/publication-recovery API with repository/branch/pinned-head binding and durable candidate records. The desktop remains read-only with Sync All disabled. Successful-sync persistence and baseline ancestry remain unimplemented; publication does not establish synchronization success. Earlier task-specific transfer limitations below describe their original delivery boundary. Live GitHub and native acceptance remain open.
+
 Task 4 implementation contract, 2026-10-15. `CollectionComparer.Compare` in Core consumes a `CollectionPairing`, a local `CollectionManifest`, a `RemoteCollection` and an optional supplied `LocalSyncState`. It returns a `CollectionComparison`: decision, typed blocking reason and sorted baseline paths missing on each side. It has no filesystem, GitHub, authentication, persistence or desktop dependency.
 
 ## Inputs and trust boundary

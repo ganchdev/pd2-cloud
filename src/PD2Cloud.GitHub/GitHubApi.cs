@@ -15,7 +15,7 @@ public sealed partial class GitHubApi(HttpClient http, string clientId, TimeProv
         MaxResponseContentBufferSize = 4 * 1024 * 1024
     };
 
-    private async Task<JsonElement> SendAsync(HttpMethod method, string url, string? token, Dictionary<string, string>? form, CancellationToken ct)
+    private async Task<JsonElement> SendAsync(HttpMethod method, string url, string? token, Dictionary<string, string>? form, CancellationToken ct, object? json = null)
     {
         using var request = new HttpRequestMessage(method, url);
         request.Headers.UserAgent.ParseAdd("PD2Cloud/0.1");
@@ -26,6 +26,7 @@ public sealed partial class GitHubApi(HttpClient http, string clientId, TimeProv
             request.Headers.Add("X-GitHub-Api-Version", "2022-11-28");
         }
         if (form is not null) request.Content = new FormUrlEncodedContent(form);
+        if (json is not null) request.Content = System.Net.Http.Json.JsonContent.Create(json);
         using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
         // Enforce the limit while streaming, including with injected HttpClient instances.
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);

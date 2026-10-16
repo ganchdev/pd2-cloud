@@ -1,5 +1,7 @@
 # GitHub connection
 
+Current task-8 extension: [safe upload](safe-upload.md) adds a coordinated initial-upload/publication-recovery API with repository/branch/pinned-head binding and durable candidate records. The desktop remains read-only with Sync All disabled. Successful-sync persistence and baseline ancestry remain unimplemented; publication does not establish synchronization success. Earlier task-specific transfer limitations below describe their original delivery boundary. Live GitHub and native acceptance remain open.
+
 Task 5 implementation contract, updated 2026-10-16. The [setup UX contract](github-setup-ux.md) describes the shared onboarding/Settings journey and supersedes the original single-panel presentation. GitHub access is independent of local inspection and pure Core comparison. It connects an account and selects repository metadata only. Task 6 adds [verified cloud reads](cloud-reads.md) through a separate Remote bridge. Transfers, baseline persistence and synchronization are not implemented. The remaining task-5 sections below describe the authentication/metadata boundary unless explicitly extended by that contract.
 
 ## Configuration and onboarding

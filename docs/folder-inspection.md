@@ -1,5 +1,7 @@
 # Generic folder inspection
 
+Current task-8 extension: [safe upload](safe-upload.md) adds a coordinated initial-upload/publication-recovery API with repository/branch/pinned-head binding and durable candidate records. The desktop remains read-only with Sync All disabled. Successful-sync persistence and baseline ancestry remain unimplemented; publication does not establish synchronization success. Earlier task-specific transfer limitations below describe their original delivery boundary. Live GitHub and native acceptance remain open.
+
 Implementation reference, updated 2026-10-15. Tasks 2–7 are implemented; GitHub/cloud reads remain separate from local inspection. Transfers and successful-sync persistence are unimplemented.
 
 PD2 Cloud is a generic folder synchronization engine. All regular files within the selected directory are treated as opaque binary data. The product's save-folder wording is presentation only; discovery contains no format knowledge or file-content parsing.

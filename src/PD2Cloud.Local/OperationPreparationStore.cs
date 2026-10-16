@@ -10,7 +10,7 @@ namespace PD2Cloud.Local;
 /// Local-only safety gate. Captures and backs up opaque files without changing the source.
 /// No installation, rollback, transfer, cleanup or successful-sync API is provided.
 /// </summary>
-public sealed class OperationPreparationStore
+public sealed partial class OperationPreparationStore
 {
     private const int MaxJournalBytes = 8 * 1024 * 1024;
     private const int MaxProgressBytes = 16 * 1024;
@@ -158,6 +158,11 @@ public sealed class OperationPreparationStore
                             throw new RecoveryBlockedException("Unrecognized recovery entry.");
                         RecoveryStorage.CheckPath(entry);
                         var (inventory, journal) = ReadJournal(entry, name, token);
+                        if (Directory.Exists(Path.Combine(entry, "upload")))
+                        {
+                            results.Add(new(name, RecoveryStatus.Blocked, "Upload evidence requires CollectionUploader publication recovery assessment. Retain all evidence; do not repeat preparation or publication."));
+                            continue;
+                        }
                         foreach (var child in Directory.EnumerateFileSystemEntries(entry))
                         {
                             var childName = Path.GetFileName(child);
