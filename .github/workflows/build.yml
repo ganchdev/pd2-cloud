@@ -147,14 +147,20 @@ jobs:
         run: |
           set -euo pipefail
           rm -f '${{ matrix.archive }}'
-          # UDZO compresses with zlib; UDZO needs scratch space for the whole
-          # image, so reclaim the publish tree before creating it.
+          # hdiutil create -srcfolder stages through a temporary mount and fails
+          # with a misleading "No space left on device" for the x64 self-contained
+          # bundle even with >90 GB free, while the arm64 bundle succeeds. Build a
+          # correctly sized read/write image, copy the bundle in, then compress.
           rm -rf 'publish/${{ matrix.rid }}'
-          hdiutil create \
-            -volname 'PD2 Cloud' \
-            -srcfolder 'build/PD2Cloud.app' \
-            -ov -format UDZO \
-            '${{ matrix.archive }}'
+          app_mb=$(du -sm 'build/PD2Cloud.app' | cut -f1)
+          image_mb=$((app_mb + 200))
+          rm -f 'build/staging.dmg'
+          hdiutil create -size "${image_mb}m" -fs HFS+ -volname 'PD2Cloud' 'build/staging.dmg'
+          mount_point=$(hdiutil attach 'build/staging.dmg' -nobrowse | tail -1 | sed 's/.*\/Volumes/\/Volumes/')
+          cp -R 'build/PD2Cloud.app' "$mount_point/"
+          sync
+          hdiutil detach "$mount_point"
+          hdiutil convert 'build/staging.dmg' -format UDZO -o '${{ matrix.archive }}'
           hdiutil verify '${{ matrix.archive }}'
           df -h /
 
