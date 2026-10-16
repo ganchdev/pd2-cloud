@@ -29,3 +29,71 @@ jobs:
         run: dotnet test PD2Cloud.slnx --configuration Release --no-build
       - name: Check formatting
         run: dotnet format PD2Cloud.slnx --verify-no-changes --no-restore
+
+  publish:
+    name: Publish (${{ matrix.rid }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            rid: win-x64
+            archive: pd2-cloud-win-x64.zip
+          - os: ubuntu-latest
+            rid: linux-x64
+            archive: pd2-cloud-linux-x64.tar.gz
+          - os: macos-latest
+            rid: osx-arm64
+            archive: pd2-cloud-osx-arm64.tar.gz
+          - os: macos-latest
+            rid: osx-x64
+            archive: pd2-cloud-osx-x64.tar.gz
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+      - name: Publish
+        run: >-
+          dotnet publish src/PD2Cloud.Desktop/PD2Cloud.Desktop.csproj
+          --configuration Release
+          --runtime ${{ matrix.rid }}
+          --self-contained true
+          -p:PublishSingleFile=true
+          -p:DebugType=none
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          --output publish/${{ matrix.rid }}
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Compress-Archive -Path 'publish/${{ matrix.rid }}/*' -DestinationPath '${{ matrix.archive }}'
+      - name: Package (Unix)
+        if: runner.os != 'Windows'
+        run: tar -czf '${{ matrix.archive }}' -C 'publish/${{ matrix.rid }}' .
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.archive }}
+          path: ${{ matrix.archive }}
+          if-no-files-found: error
+
+  release:
+    name: Release
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
