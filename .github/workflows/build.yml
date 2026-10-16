@@ -54,6 +54,15 @@ jobs:
       - uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
+      # NuGet's Version property requires a valid SemVer string, so the leading
+      # "v" from release tags must be stripped. "v1.0.0" makes restore fail with
+      # an opaque MSB4181 before any useful diagnostic is produced.
+      - name: Resolve version
+        id: version
+        shell: bash
+        env:
+          RAW_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || '1.0.0' }}
+        run: echo "value=${RAW_VERSION#v}" >> "$GITHUB_OUTPUT"
       - name: Publish
         run: >-
           dotnet publish src/PD2Cloud.Desktop/PD2Cloud.Desktop.csproj
@@ -63,7 +72,7 @@ jobs:
           -p:PublishSingleFile=true
           -p:DebugType=none
           -p:IncludeNativeLibrariesForSelfExtract=true
-          -p:Version=${{ github.ref_type == 'tag' && github.ref_name || '1.0.0' }}
+          -p:Version=${{ steps.version.outputs.value }}
           --output publish/${{ matrix.rid }}
 
       # macOS: wrap the bare executable in a .app bundle so Finder treats it as
@@ -71,11 +80,11 @@ jobs:
       - name: Bundle .app (macOS)
         if: runner.os == 'macOS'
         shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
         run: |
           set -euo pipefail
           APP="build/PD2Cloud.app"
-          VERSION="${{ github.ref_type == 'tag' && github.ref_name || '1.0.0' }}"
-          VERSION="${VERSION#v}"
           rm -rf "$APP"
           mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
           cp "publish/${{ matrix.rid }}/PD2Cloud.Desktop" "$APP/Contents/MacOS/PD2Cloud"
