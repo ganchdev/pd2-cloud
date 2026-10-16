@@ -28,16 +28,16 @@ public sealed class CloudCollectionReader(GitHubConnection connection)
             if (snapshot.Commit is null)
             {
                 Require(snapshot.Tree is null && snapshot.Entries.Count == 0 && snapshot.Blobs.Count == 0);
-                return Result(RepositoryContent.EmptyRepository, "Empty repository. Its first collection can only be created by a future explicit synchronization. No files were uploaded.");
+                return Result(RepositoryContent.EmptyRepository, "Empty repository. Its first PD2 Cloud collection can be created by an explicit, reviewed initialization. No files were uploaded.");
             }
             Require(IsId(snapshot.Commit) && IsId(snapshot.Tree));
             VerifyTrees(snapshot, ct);
             var entries = snapshot.Entries;
             if (entries.Count == 0)
-                return Result(RepositoryContent.EmptyRepository, "The selected revision has an empty tree. No managed collection exists yet.");
+                return Result(RepositoryContent.EmptyRepository, "The selected revision has an empty tree. No managed collection exists yet. Its first PD2 Cloud collection can be created by an explicit, reviewed initialization.");
             var owned = entries.Where(e => RelativePaths.CollisionKey(e.Path.Split('/')[0]) == RelativePaths.CollisionKey(CloudStorage.Root)).ToArray();
             if (owned.Length == 0)
-                return Result(RepositoryContent.Unrelated, "This repository contains unrelated files and no PD2 Cloud collection. Future adoption will require confirmation; nothing has been initialized or overwritten.");
+                return Result(RepositoryContent.Unrelated, "This repository contains unrelated files and no PD2 Cloud collection. Adopting it requires an explicit confirmation; nothing has been initialized or overwritten.");
 
             var paths = new Dictionary<string, string>(StringComparer.Ordinal);
             foreach (var item in owned)

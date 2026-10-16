@@ -43,14 +43,16 @@ public sealed class CollectionUploadTests : IDisposable
     private string Record(PreparedOperation op, string name) => Path.Combine(Data, "recovery", op.OperationId, "upload", name + ".json");
 
     // Independent HTTP fixture retains unreachable objects, checks single-parent non-forced updates and serves real object bytes.
-    private sealed class Server : HttpMessageHandler
+    internal sealed class Server : HttpMessageHandler
     {
         internal string? Head = Parent;
+        internal string? Seed;
         internal readonly Dictionary<string, byte[]> Blobs = new(StringComparer.Ordinal);
         internal readonly Dictionary<string, GitTreeEntry[]> Trees = new(StringComparer.Ordinal);
         internal readonly Dictionary<string, (string Tree, string? Parent)> Commits = new(StringComparer.Ordinal);
         internal readonly List<string> Writes = [];
         internal bool LostResponse, RejectUpdate, BadBlob, BadTree, BadParent, Private = true;
+        internal bool RejectSeed;
         internal Action<string>? Before;
         internal Action? AfterPublish;
         internal Func<string, Task>? Pause;
@@ -106,6 +108,7 @@ public sealed class CollectionUploadTests : IDisposable
                 {
                     "/user/installations" => new { installations = new[] { new { id = 2, suspended_at = (string?)null, permissions = new { contents = "write" } } } },
                     "/user/installations/2/repositories" => new { repositories = new[] { repo } },
+                    "/user" => new { login = "player" },
                     "/repos/player/saves" => repo,
                     "/repos/player/saves/commits" => Head is null ? Array.Empty<object>() : new object[] { new { sha = Head } },
                     "/repos/player/saves/git/ref/heads/main" => new { @ref = "refs/heads/main", @object = new { type = "commit", sha = Head } },
@@ -127,13 +130,36 @@ public sealed class CollectionUploadTests : IDisposable
                 Writes.Add(route);
                 using var json = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(ct));
                 var value = json.RootElement;
-                if (path.EndsWith("/git/blobs", StringComparison.Ordinal))
+                // GitHub's Git Data API rejects writes to an empty repository, so an unborn repository is seeded
+                // through the Contents API. Both behaviours are modelled here.
+                if (path.EndsWith("/contents/.pd2cloud/manifest.json", StringComparison.Ordinal))
+                {
+                    Assert.Equal(HttpMethod.Put, request.Method);
+                    if (RejectSeed) return Response(new { message = "sha wasn't supplied" }, HttpStatusCode.UnprocessableEntity);
+                    Assert.Null(Head);
+                    var bytes = Convert.FromBase64String(value.GetProperty("content").GetString()!);
+                    var blobId = CloudStorage.BlobId(bytes); Blobs[blobId] = bytes;
+                    var manifestEntry = new GitTreeEntry("manifest.json", "100644", "blob", blobId, bytes.Length);
+                    var pd2cloud = CloudStorage.TreeId([manifestEntry]); Trees[pd2cloud] = [manifestEntry];
+                    var rootEntry = new GitTreeEntry(CloudStorage.Root, "040000", "tree", pd2cloud, 0);
+                    var rootTree = CloudStorage.TreeId([rootEntry]); Trees[rootTree] = [rootEntry];
+                    var seed = Convert.ToHexStringLower(SHA1.HashData(JsonSerializer.SerializeToUtf8Bytes(value)));
+                    Commits[seed] = (rootTree, null);
+                    Seed = seed;
+                    Head = seed;
+                    body = new { content = new { sha = blobId }, commit = new { sha = seed, tree = new { sha = rootTree } } };
+                }
+                else if (Head is null)
+                {
+                    return Response(new { message = "Git Repository is empty." }, HttpStatusCode.Conflict);
+                }
+                else if (path.EndsWith("/git/blobs", StringComparison.Ordinal))
                 {
                     var bytes = Convert.FromBase64String(value.GetProperty("content").GetString()!);
                     var id = CloudStorage.BlobId(bytes); Blobs[id] = bytes;
                     body = new { sha = BadBlob ? new string('0', 40) : id };
                 }
-                if (path.EndsWith("/git/trees", StringComparison.Ordinal))
+                else if (path.EndsWith("/git/trees", StringComparison.Ordinal))
                 {
                     Assert.False(value.TryGetProperty("base_tree", out _));
                     var entries = value.GetProperty("tree").EnumerateArray().Select(e => new GitTreeEntry(e.GetProperty("path").GetString()!, e.GetProperty("mode").GetString()!, e.GetProperty("type").GetString()!, e.GetProperty("sha").GetString()!, 0))
@@ -141,16 +167,16 @@ public sealed class CollectionUploadTests : IDisposable
                     var id = CloudStorage.TreeId(entries); Trees[id] = entries;
                     body = new { sha = BadTree ? new string('0', 40) : id };
                 }
-                if (path.EndsWith("/git/commits", StringComparison.Ordinal))
+                else if (path.EndsWith("/git/commits", StringComparison.Ordinal))
                 {
-                    Assert.Single(value.GetProperty("parents").EnumerateArray());
-                    var parent = value.GetProperty("parents")[0].GetString()!;
-                    Assert.Equal(Parent, parent);
+                    var parents = value.GetProperty("parents").EnumerateArray().ToArray();
                     var tree = value.GetProperty("tree").GetString()!;
                     var id = Convert.ToHexStringLower(SHA1.HashData(JsonSerializer.SerializeToUtf8Bytes(value)));
-                    Commits[id] = (tree, parent); body = new { sha = id };
+                    if (parents.Length == 0) Commits[id] = (tree, null);
+                    else { Assert.Single(parents); Commits[id] = (tree, parents[0].GetString()!); }
+                    body = new { sha = id };
                 }
-                if (request.Method == HttpMethod.Patch)
+                else if (request.Method == HttpMethod.Patch)
                 {
                     Assert.Equal("/repos/player/saves/git/refs/heads/main", path);
                     Assert.False(value.GetProperty("force").GetBoolean());
@@ -703,6 +729,162 @@ public sealed class CollectionUploadTests : IDisposable
         var (isAncestor, notice) = await uploader.VerifyBaselineAncestryAsync(invalidState);
         Assert.False(isAncestor);
         Assert.NotNull(notice);
+    }
+
+    private static UploadRequest Bootstrap(PreparedOperation op, RepositoryBootstrapCase bootstrap, string pinned = "") =>
+        new(op.OperationId, op.SourceRoot, op.CollectionFingerprint, Repository, pinned, bootstrap);
+
+    [Fact]
+    public async Task UnbornRepositoryIsSeededThroughContentsApiThenPublishedAsChildCommit()
+    {
+        var op = await Store().PrepareAsync(Source);
+        var server = new Server("unborn");
+        var uploader = new CollectionUploader(Store(), Connection(server), SyncStateStore());
+        var result = await uploader.UploadAsync(Bootstrap(op, RepositoryBootstrapCase.UnbornRepository));
+        Assert.Equal(UploadStatus.Published, result.Status);
+        Assert.Equal(result.CandidateCommit, server.Head);
+        // The first commit is a zero-parent seed created via the Contents API; the collection is its child commit.
+        Assert.NotNull(server.Seed);
+        Assert.Equal(server.Seed, server.Commits[server.Head!].Parent);
+        var seedEntries = server.Expand(server.Commits[server.Seed!].Tree);
+        Assert.Contains(seedEntries, e => e.Path == CloudStorage.ManifestPath);
+        Assert.DoesNotContain(seedEntries, e => e.Path.StartsWith(CloudStorage.FilesPath, StringComparison.Ordinal));
+        foreach (var file in op.Files)
+            Assert.Contains(server.Expand(server.Commits[server.Head!].Tree), e => e.Path == CloudStorage.FilesPath + "/" + file.RelativePath);
+        Assert.Contains(server.Writes, p => p == "PUT /repos/player/saves/contents/.pd2cloud/manifest.json");
+        Assert.Contains(server.Writes, p => p.EndsWith("/git/commits", StringComparison.Ordinal));
+        Assert.Single(server.Writes, p => p.StartsWith("PATCH", StringComparison.Ordinal));
+        Assert.DoesNotContain(server.Writes, p => p.StartsWith("POST /repos/player/saves/git/refs", StringComparison.Ordinal));
+        Assert.True(File.Exists(Path.Combine(Data, "local-sync-state.json")));
+        Assert.True(File.Exists(Record(op, "published")));
+        // A second upload is still blocked after bootstrap.
+        await Assert.ThrowsAsync<RecoveryBlockedException>(() => new CollectionUploader(Store(), Connection(server), SyncStateStore())
+            .UploadAsync(Bootstrap(op, RepositoryBootstrapCase.UnbornRepository)));
+    }
+
+    [Fact]
+    public async Task EmptyTreeRepositoryIsBootstrappedWithChildCommitAndNonForcedPatch()
+    {
+        var op = await Store().PrepareAsync(Source);
+        var server = new Server("empty-tree");
+        var result = await new CollectionUploader(Store(), Connection(server), SyncStateStore())
+            .UploadAsync(Bootstrap(op, RepositoryBootstrapCase.EmptyTree, Parent));
+        Assert.Equal(UploadStatus.Published, result.Status);
+        Assert.Equal(Parent, server.Commits[result.CandidateCommit!].Parent);
+        Assert.Single(server.Writes, p => p.StartsWith("PATCH", StringComparison.Ordinal));
+        Assert.DoesNotContain(server.Writes, p => p.StartsWith("POST /repos/player/saves/git/refs", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task UnrelatedRepositoryIsAdoptedPreservingEveryUnrelatedEntryVerbatim()
+    {
+        var op = await Store().PrepareAsync(Source);
+        var server = new Server("unrelated");
+        var before = server.Expand(server.Commits[Parent].Tree).OrderBy(e => e.Path, StringComparer.Ordinal).ToArray();
+        Assert.Contains(before, e => e.Path == "README.md" && e.Mode == "100755");
+        Assert.Contains(before, e => e.Path == "other/link" && e.Mode == "120000");
+        var result = await new CollectionUploader(Store(), Connection(server), SyncStateStore())
+            .UploadAsync(Bootstrap(op, RepositoryBootstrapCase.Unrelated, Parent));
+        Assert.Equal(UploadStatus.Published, result.Status);
+        Assert.Equal(Parent, server.Commits[result.CandidateCommit!].Parent);
+        var after = server.Expand(server.Commits[result.CandidateCommit!].Tree)
+            .Where(e => !e.Path.StartsWith(CloudStorage.Root, StringComparison.Ordinal)).OrderBy(e => e.Path, StringComparer.Ordinal).ToArray();
+        Assert.Equal(before, after);
+        Assert.Contains(server.Expand(server.Commits[result.CandidateCommit!].Tree), e => e.Path == CloudStorage.ManifestPath);
+        Assert.Single(server.Writes, p => p.StartsWith("PATCH", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("unborn", RepositoryBootstrapCase.None)]
+    [InlineData("unborn", RepositoryBootstrapCase.EmptyTree)]
+    [InlineData("unborn", RepositoryBootstrapCase.Unrelated)]
+    [InlineData("empty-tree", RepositoryBootstrapCase.UnbornRepository)]
+    [InlineData("unrelated", RepositoryBootstrapCase.UnbornRepository)]
+    [InlineData("incompatible", RepositoryBootstrapCase.UnbornRepository)]
+    [InlineData("incompatible", RepositoryBootstrapCase.EmptyTree)]
+    [InlineData("incompatible", RepositoryBootstrapCase.Unrelated)]
+    [InlineData("managed", RepositoryBootstrapCase.UnbornRepository)]
+    [InlineData("managed", RepositoryBootstrapCase.Unrelated)]
+    public async Task BootstrapRequiresTheExactReviewedClassificationAndNeverWrites(string classification, RepositoryBootstrapCase bootstrap)
+    {
+        var op = await Store().PrepareAsync(Source);
+        var server = new Server(classification);
+        var pinned = bootstrap == RepositoryBootstrapCase.UnbornRepository ? "" : Parent;
+        await Assert.ThrowsAsync<RecoveryBlockedException>(() => new CollectionUploader(Store(), Connection(server), SyncStateStore())
+            .UploadAsync(Bootstrap(op, bootstrap, pinned)));
+        Assert.Empty(server.Writes);
+        Assert.False(File.Exists(Record(op, "intent")));
+    }
+
+    [Theory]
+    [InlineData("unborn", RepositoryBootstrapCase.UnbornRepository)]
+    [InlineData("empty-tree", RepositoryBootstrapCase.EmptyTree)]
+    [InlineData("unrelated", RepositoryBootstrapCase.Unrelated)]
+    public async Task LostBootstrapResponseIsRecoveredWithoutReplayOrBaseline(string classification, RepositoryBootstrapCase bootstrap)
+    {
+        var op = await Store().PrepareAsync(Source);
+        var server = new Server(classification) { LostResponse = true };
+        var pinned = bootstrap == RepositoryBootstrapCase.UnbornRepository ? "" : Parent;
+        await Assert.ThrowsAnyAsync<Exception>(() => new CollectionUploader(Store(), Connection(server), SyncStateStore())
+            .UploadAsync(Bootstrap(op, bootstrap, pinned)));
+        Assert.True(File.Exists(Record(op, "candidate")));
+        var writes = server.Writes.Count;
+        var restarted = new CollectionUploader(Store(), Connection(server), SyncStateStore());
+        for (var i = 0; i < 2; i++) Assert.Equal(UploadStatus.Published, (await restarted.AssessRecoveryAsync(op.OperationId, Repository)).Status);
+        Assert.Equal(writes, server.Writes.Count);
+        Assert.False(File.Exists(Path.Combine(Data, "local-sync-state.json")));
+    }
+
+    [Fact]
+    public async Task ConcurrentUpdateDuringUnbornBootstrapNeverReparentsOrOverwrites()
+    {
+        var op = await Store().PrepareAsync(Source);
+        var server = new Server("unborn");
+        var competitor = new string('b', 40);
+        server.Commits[competitor] = server.Commits[Parent];
+        server.Before = route => { if (route == "PATCH /repos/player/saves/git/refs/heads/main") server.Head = competitor; };
+        await Assert.ThrowsAnyAsync<Exception>(() => new CollectionUploader(Store(), Connection(server), SyncStateStore())
+            .UploadAsync(Bootstrap(op, RepositoryBootstrapCase.UnbornRepository)));
+        Assert.Equal(competitor, server.Head);
+        var writes = server.Writes.Count;
+        server.Before = null;
+        Assert.Equal(UploadStatus.ConcurrentUpdate, (await new CollectionUploader(Store(), Connection(server), SyncStateStore()).AssessRecoveryAsync(op.OperationId, Repository)).Status);
+        Assert.Equal(writes, server.Writes.Count);
+        Assert.False(File.Exists(Path.Combine(Data, "local-sync-state.json")));
+    }
+
+    [Fact]
+    public async Task UnbornBootstrapSeedFailureRetainsIntentOnlyAndNeverClaimsPublication()
+    {
+        var op = await Store().PrepareAsync(Source);
+        var server = new Server("unborn") { RejectSeed = true };
+        await Assert.ThrowsAsync<ConnectionException>(() => new CollectionUploader(Store(), Connection(server), SyncStateStore())
+            .UploadAsync(Bootstrap(op, RepositoryBootstrapCase.UnbornRepository)));
+        Assert.Null(server.Head);
+        Assert.True(File.Exists(Record(op, "intent")));
+        Assert.False(File.Exists(Record(op, "candidate")));
+        Assert.False(File.Exists(Path.Combine(Data, "local-sync-state.json")));
+        Assert.Equal(UploadStatus.Interrupted, (await new CollectionUploader(Store(), Connection(server), SyncStateStore()).AssessRecoveryAsync(op.OperationId, Repository)).Status);
+    }
+
+    [Theory]
+    [InlineData("unborn", RepositoryBootstrapCase.UnbornRepository, "Initialize", true)]
+    [InlineData("empty-tree", RepositoryBootstrapCase.EmptyTree, "Bootstrap", false)]
+    [InlineData("unrelated", RepositoryBootstrapCase.Unrelated, "Adopt", false)]
+    public async Task BootstrapDirectionIsBoundInDurablePublicationEvidence(string classification, RepositoryBootstrapCase bootstrap, string direction, bool noParent)
+    {
+        var op = await Store().PrepareAsync(Source);
+        var server = new Server(classification);
+        var pinned = bootstrap == RepositoryBootstrapCase.UnbornRepository ? "" : Parent;
+        var result = await new CollectionUploader(Store(), Connection(server), SyncStateStore()).UploadAsync(Bootstrap(op, bootstrap, pinned));
+        Assert.Equal(UploadStatus.Published, result.Status);
+        var intent = JsonNode.Parse(await File.ReadAllTextAsync(Record(op, "intent")))!.AsObject();
+        Assert.Equal(direction, intent["Direction"]!.GetValue<string>());
+        if (noParent) { Assert.Null(intent["Parent"]); Assert.Null(intent["OriginalTree"]); }
+        else { Assert.Equal(Parent, intent["Parent"]!.GetValue<string>()); Assert.NotNull(intent["OriginalTree"]); }
+        var candidate = JsonNode.Parse(await File.ReadAllTextAsync(Record(op, "candidate")))!.AsObject();
+        Assert.Equal(direction, candidate["Direction"]!.GetValue<string>());
+        Assert.True(File.Exists(Record(op, "published")));
     }
 
 }

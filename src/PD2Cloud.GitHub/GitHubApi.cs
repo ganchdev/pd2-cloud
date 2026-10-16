@@ -34,22 +34,42 @@ public sealed partial class GitHubApi(HttpClient http, string clientId, TimeProv
         await response.Content.LoadIntoBufferAsync(4 * 1024 * 1024, timeout.Token).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
-            if (response.StatusCode == System.Net.HttpStatusCode.Conflict && url.EndsWith("/commits?per_page=1", StringComparison.Ordinal))
-            {
-                using var error = JsonDocument.Parse(await response.Content.ReadAsStringAsync(timeout.Token).ConfigureAwait(false));
-                if (error.RootElement.TryGetProperty("message", out var message) && message.GetString() == "Git Repository is empty.")
-                    return JsonSerializer.SerializeToElement(Array.Empty<object>());
-            }
-            throw new ConnectionException(response.StatusCode switch
-            {
-                System.Net.HttpStatusCode.Unauthorized => "GitHub authorization is no longer valid. Disconnect and connect again.",
-                System.Net.HttpStatusCode.Forbidden or System.Net.HttpStatusCode.TooManyRequests => "GitHub denied access or rate limited the request. Check app access and retry later.",
-                _ => "GitHub could not complete the request. Check connectivity and retry."
-            });
+            var body = await response.Content.ReadAsStringAsync(timeout.Token).ConfigureAwait(false);
+            if (response.StatusCode == System.Net.HttpStatusCode.Conflict && url.EndsWith("/commits?per_page=1", StringComparison.Ordinal)
+                && SafeMessage(body, out var emptyMessage) && emptyMessage == "Git Repository is empty.")
+                return JsonSerializer.SerializeToElement(Array.Empty<object>());
+            throw new ConnectionException(DescribeFailure(response.StatusCode, body));
         }
         // Do not include response bodies, request URIs containing secrets, or underlying exceptions in UI/logs.
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(timeout.Token).ConfigureAwait(false));
         return document.RootElement.Clone();
+    }
+
+    // Sanitized, bounded GitHub status text for the user. Never includes tokens, request URIs or response bodies verbatim.
+    private static string DescribeFailure(System.Net.HttpStatusCode status, string body) => status switch
+    {
+        System.Net.HttpStatusCode.Unauthorized => "GitHub authorization is no longer valid. Disconnect and connect again.",
+        System.Net.HttpStatusCode.Forbidden => "GitHub denied the request. Confirm the PD2 Cloud app has Contents read/write permission and is installed on this repository, then retry.",
+        System.Net.HttpStatusCode.TooManyRequests => "GitHub rate limited the request. Wait a while, then retry.",
+        System.Net.HttpStatusCode.NotFound => "GitHub could not find the repository. Confirm the app is installed on it and the repository still exists.",
+        System.Net.HttpStatusCode.UnprocessableEntity => "GitHub rejected the request" + Detail(body) + ". The repository may have changed or the branch may already exist; refresh and retry.",
+        _ => "GitHub could not complete the request" + Detail(body) + ". Check connectivity and retry."
+    };
+    private static string Detail(string body) => SafeMessage(body, out var message) ? $" ({message})" : "";
+    private static bool SafeMessage(string body, out string message)
+    {
+        message = "";
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+            if (document.RootElement.ValueKind != JsonValueKind.Object
+                || !document.RootElement.TryGetProperty("message", out var field) || field.ValueKind != JsonValueKind.String) return false;
+            var text = field.GetString();
+            if (string.IsNullOrWhiteSpace(text) || text.Length > 200 || text.Any(char.IsControl)) return false;
+            message = text;
+            return true;
+        }
+        catch (JsonException) { return false; }
     }
 
     public async Task<ConnectionCredentials> AuthorizeAsync(Action<DeviceAuthorization> showCode, CancellationToken ct)

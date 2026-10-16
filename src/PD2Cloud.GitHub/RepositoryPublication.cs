@@ -31,6 +31,8 @@ internal sealed class RepositoryWriter(GitHubApi api, RepositoryChoice repositor
     internal Task<string> BlobAsync(byte[] bytes) { Check(); return api.CreateBlobAsync(repository, token, bytes, ct); }
     internal Task<string> TreeAsync(IReadOnlyList<GitTreeEntry> entries) { Check(); return api.CreateTreeAsync(repository, token, entries, ct); }
     internal Task<string> CommitAsync(string tree, string parent, string operation) { Check(); return api.CreateCommitAsync(repository, token, tree, parent, operation, ct); }
+    // GitHub's Git Data API rejects writes to an empty repository, so the first commit must be created through the Contents API.
+    internal Task<(string Commit, string Tree)> CreateFileAsync(string path, byte[] content, string operation) { Check(); return api.CreateFileAsync(repository, token, path, content, operation, ct); }
     internal Task PublishAsync(string commit) { Check(); return api.PublishAsync(repository, token, commit, ct); }
 }
 
@@ -65,6 +67,20 @@ public sealed partial class GitHubApi
             || result.GetProperty("parents").GetArrayLength() != 1 || ObjectId(Required(result.GetProperty("parents")[0], "sha")) != parent)
             throw InvalidCloud();
         return sha;
+    }
+    // Seed the first file (and therefore the first commit and default branch) through the Contents API. This is the
+    // only way to create the initial commit: the Git Data API returns 409 "Git Repository is empty." until a commit exists.
+    internal async Task<(string Commit, string Tree)> CreateFileAsync(RepositoryChoice repository, string token, string path, byte[] content, string operation, CancellationToken ct)
+    {
+        var url = RepositoryUrl(repository) + "/contents/" + string.Join('/', path.Split('/').Select(Uri.EscapeDataString));
+        var result = await SendAsync(HttpMethod.Put, url, token, null, ct,
+            new { message = "PD2 Cloud initialize " + operation, content = Convert.ToBase64String(content) }).ConfigureAwait(false);
+        var contentSha = ObjectId(Required(result.GetProperty("content"), "sha"));
+        if (contentSha != CloudStorage.BlobId(content)) throw InvalidCloud();
+        var commit = result.GetProperty("commit");
+        var commitSha = ObjectId(Required(commit, "sha"));
+        var treeSha = ObjectId(Required(commit.GetProperty("tree"), "sha"));
+        return (commitSha, treeSha);
     }
     internal async Task PublishAsync(RepositoryChoice repository, string token, string commit, CancellationToken ct)
     {

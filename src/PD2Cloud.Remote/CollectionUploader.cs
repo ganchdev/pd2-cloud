@@ -7,24 +7,37 @@ using PD2Cloud.Local;
 
 namespace PD2Cloud.Remote;
 
-/// <summary>Explicit reviewed pairing, independent of Prepared evidence. Initial managed-empty uploads only.</summary>
+/// <summary>Explicit reviewed pairing, independent of Prepared evidence. Initial upload or explicit bootstrap only.</summary>
 public sealed record UploadRequest(string OperationId, string SourceRoot, string CollectionFingerprint,
-    RepositoryChoice Repository, string PinnedCommit);
+    RepositoryChoice Repository, string PinnedCommit, RepositoryBootstrapCase Bootstrap = RepositoryBootstrapCase.None);
+
+/// <summary>
+/// The reviewed repository classification. None is the ordinary initial-upload case into an already managed,
+/// verified empty collection. The others are explicit, user-confirmed bootstrap directions and never implicit.
+/// </summary>
+public enum RepositoryBootstrapCase { None, UnbornRepository, EmptyTree, Unrelated }
+
 public enum UploadStatus { Published, PublishedSourceChanged, NotPublished, ConcurrentUpdate, Interrupted }
 /// <summary>Publication evidence only; never a successfully synchronized baseline.</summary>
 public sealed record UploadResult(UploadStatus Status, string? CandidateCommit);
 
-/// <summary>No UI/background caller. Does not initialize/adopt repositories or replace source files.</summary>
+/// <summary>No UI/background caller. Never initializes or adopts a repository without an explicit confirmed request and never replaces source files.</summary>
 public sealed class CollectionUploader(OperationPreparationStore preparations, GitHubConnection connection, LocalSyncStateStore syncStateStore)
 {
+    private const string UploadDirection = "Upload";
+    private const string InitializeDirection = "Initialize";
+    private const string BootstrapDirection = "Bootstrap";
+    private const string AdoptDirection = "Adopt";
+    // Local-only placeholder used to round-trip verify a generated tree for an unborn repository before any object is posted.
+    private const string UnbornVerificationCommit = "0000000000000000000000000000000000000000";
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
         RespectRequiredConstructorParameters = true
     };
     private sealed record Intent(int SchemaVersion, string Direction, string OperationId, string SourceRoot,
-        string Fingerprint, string PreparationDigest, RepositoryChoice Repository, string Parent, string OriginalTree);
-    private sealed record Candidate(int SchemaVersion, string IntentDigest, string Commit, string Tree);
+        string Fingerprint, string PreparationDigest, RepositoryChoice Repository, string? Parent, string? OriginalTree);
+    private sealed record Candidate(int SchemaVersion, string Direction, string IntentDigest, string Commit, string Tree);
     private sealed record Receipt(int SchemaVersion, string CandidateDigest, string Commit);
 
     public Task<UploadResult> UploadAsync(UploadRequest request, CancellationToken ct = default) =>
@@ -33,13 +46,13 @@ public sealed class CollectionUploader(OperationPreparationStore preparations, G
             {
                 Require(evidence.ReadRecords().Count == 0, "Publication already started. Assess recovery; do not replay upload.");
                 var operation = evidence.Operation;
-                Require(request.SourceRoot == operation.SourceRoot && request.CollectionFingerprint == operation.CollectionFingerprint && IsId(request.PinnedCommit),
+                Require(request.SourceRoot == operation.SourceRoot && request.CollectionFingerprint == operation.CollectionFingerprint
+                    && operation.Files.Count > 0
+                    && (request.Bootstrap == RepositoryBootstrapCase.UnbornRepository ? request.PinnedCommit.Length == 0 : IsId(request.PinnedCommit)),
                     "Reviewed local evidence changed.");
                 var original = await writer.ReadAsync().ConfigureAwait(false);
                 var verified = CloudCollectionReader.Verify(original, ct);
-                Require(original.Commit == request.PinnedCommit && verified.Content == RepositoryContent.ManagedCollection
-                    && verified.Collection!.Manifest!.Files.Count == 0 && operation.Files.Count > 0,
-                    "Only an initial upload to a pinned, verified empty managed collection is supported. Initialization, adoption and reconciliation are blocked.");
+                ValidateReviewedState(request, original, verified);
                 ValidateLimits(operation.Files);
                 var manifest = JsonSerializer.SerializeToUtf8Bytes(new
                 {
@@ -56,16 +69,27 @@ public sealed class CollectionUploader(OperationPreparationStore preparations, G
                 var blobEntries = payloads.Select(p => new GitTreeEntry(p.Key, "100644", "blob", CloudStorage.BlobId(p.Value), p.Value.Length)).ToList();
                 var entries = BuildEntries(original, blobEntries);
                 var tree = CloudStorage.TreeId(entries.Where(e => !e.Path.Contains('/')));
-                var candidateSnapshot = new RepositorySnapshot(request.Repository, request.PinnedCommit, tree, entries,
+                var candidateSnapshot = new RepositorySnapshot(request.Repository, request.Bootstrap == RepositoryBootstrapCase.UnbornRepository
+                    ? UnbornVerificationCommit : original.Commit, tree, entries,
                     payloads.Values.GroupBy(CloudStorage.BlobId).ToDictionary(g => g.Key, g => g.First()));
                 var candidateVerification = CloudCollectionReader.Verify(candidateSnapshot, ct);
                 Require(candidateVerification.Content == RepositoryContent.ManagedCollection
                     && candidateVerification.Collection!.Manifest!.Files.SequenceEqual(operation.Files), "Generated upload failed round-trip verification.");
                 await evidence.RevalidateAsync().ConfigureAwait(false);
-                var intent = new Intent(1, "Upload", operation.OperationId, operation.SourceRoot, operation.CollectionFingerprint,
-                    evidence.PreparationDigest, request.Repository, request.PinnedCommit, original.Tree!);
+                var direction = DirectionOf(request.Bootstrap);
+                var unborn = request.Bootstrap == RepositoryBootstrapCase.UnbornRepository;
+                var intent = new Intent(1, direction, operation.OperationId, operation.SourceRoot, operation.CollectionFingerprint,
+                    evidence.PreparationDigest, request.Repository, original.Commit, original.Tree);
                 var intentBytes = Encode(intent);
                 evidence.WriteRecord("intent.json", intentBytes);
+                // GitHub's Git Data API rejects writes to an empty repository, so an unborn repository is first seeded
+                // with its manifest (creating the initial commit and default branch) through the Contents API.
+                (string Commit, string Tree) seed = (string.Empty, string.Empty);
+                if (unborn)
+                {
+                    seed = await writer.CreateFileAsync(CloudStorage.ManifestPath, manifest, operation.OperationId).ConfigureAwait(false);
+                    Require(IsId(seed.Commit) && IsId(seed.Tree), "The initial repository commit could not be verified.");
+                }
                 foreach (var bytes in payloads.Values.GroupBy(CloudStorage.BlobId).Select(g => g.First()))
                     _ = await writer.BlobAsync(bytes).ConfigureAwait(false);
                 // Explicit direct-child trees avoid base_tree replacement/deletion semantics and preserve unrelated root IDs verbatim.
@@ -73,17 +97,21 @@ public sealed class CollectionUploader(OperationPreparationStore preparations, G
                     .OrderByDescending(e => e.Path.Count(c => c == '/')))
                     _ = await writer.TreeAsync(Children(entries, directory.Path)).ConfigureAwait(false);
                 _ = await writer.TreeAsync(Children(entries, "")).ConfigureAwait(false);
-                var commit = await writer.CommitAsync(tree, request.PinnedCommit, operation.OperationId).ConfigureAwait(false);
-                var candidateBytes = Encode(new Candidate(1, Digest(intentBytes), commit, tree));
+                var parent = unborn ? seed.Commit : original.Commit!;
+                var commit = await writer.CommitAsync(tree, parent, operation.OperationId).ConfigureAwait(false);
+                var candidateBytes = Encode(new Candidate(1, direction, Digest(intentBytes), commit, tree));
                 evidence.WriteRecord("candidate.json", candidateBytes);
                 await evidence.RevalidateAsync().ConfigureAwait(false);
                 var current = await writer.ReadAsync().ConfigureAwait(false);
-                Require(current.Commit == request.PinnedCommit && current.Tree == original.Tree, "Remote head changed. Retain candidate and refresh; never reparent automatically.");
+                if (unborn)
+                    Require(current.Commit == seed.Commit && current.Tree == seed.Tree, "Remote repository changed. Retain candidate and refresh; never reparent automatically.");
+                else
+                    Require(current.Commit == original.Commit && current.Tree == original.Tree, "Remote head changed. Retain candidate and refresh; never reparent automatically.");
                 await evidence.RevalidateAsync().ConfigureAwait(false);
                 ct.ThrowIfCancellationRequested();
                 // Once attempted, any error/cancellation is an uncertain result. Only recovery may inspect it; never replay.
                 await writer.PublishAsync(commit).ConfigureAwait(false);
-                var result = await ConfirmAsync(evidence, writer, intent, new Candidate(1, Digest(intentBytes), commit, tree), candidateBytes, ct).ConfigureAwait(false);
+                var result = await ConfirmAsync(evidence, writer, intent, new Candidate(1, direction, Digest(intentBytes), commit, tree), candidateBytes, ct).ConfigureAwait(false);
                 if (result.Status == UploadStatus.Published)
                 {
                     var syncState = new LocalSyncState(1, request.Repository.FullName, request.Repository.DefaultBranch,
@@ -93,6 +121,41 @@ public sealed class CollectionUploader(OperationPreparationStore preparations, G
                 }
                 return result;
             }, ct), ct);
+
+    private static void ValidateReviewedState(UploadRequest request, RepositorySnapshot original, CloudReadResult verified)
+    {
+        switch (request.Bootstrap)
+        {
+            case RepositoryBootstrapCase.None:
+                Require(original.Commit == request.PinnedCommit && verified.Content == RepositoryContent.ManagedCollection
+                    && verified.Collection!.Manifest!.Files.Count == 0,
+                    "Only an initial upload to a pinned, verified empty managed collection is supported. Review the repository classification again.");
+                break;
+            case RepositoryBootstrapCase.UnbornRepository:
+                Require(original.Commit is null && original.Tree is null && verified.Content == RepositoryContent.EmptyRepository,
+                    "The repository is no longer unborn. Refresh and review again; nothing was written.");
+                break;
+            case RepositoryBootstrapCase.EmptyTree:
+                Require(original.Commit == request.PinnedCommit && verified.Content == RepositoryContent.EmptyRepository,
+                    "The pinned empty revision changed. Refresh and review again; nothing was written.");
+                break;
+            case RepositoryBootstrapCase.Unrelated:
+                Require(original.Commit == request.PinnedCommit && verified.Content == RepositoryContent.Unrelated,
+                    "The repository contents changed. Refresh and review again; nothing was written.");
+                break;
+            default:
+                throw new RecoveryBlockedException("Unsupported bootstrap direction.");
+        }
+    }
+
+    private static string DirectionOf(RepositoryBootstrapCase bootstrap) => bootstrap switch
+    {
+        RepositoryBootstrapCase.None => UploadDirection,
+        RepositoryBootstrapCase.UnbornRepository => InitializeDirection,
+        RepositoryBootstrapCase.EmptyTree => BootstrapDirection,
+        RepositoryBootstrapCase.Unrelated => AdoptDirection,
+        _ => throw new RecoveryBlockedException("Unsupported bootstrap direction.")
+    };
 
     public async Task<(bool IsAncestor, string? Notice)> VerifyBaselineAncestryAsync(LocalSyncState state, CancellationToken ct = default)
     {
@@ -115,16 +178,18 @@ public sealed class CollectionUploader(OperationPreparationStore preparations, G
                 var intentBytes = records["intent.json"];
                 var intent = Decode<Intent>(intentBytes);
                 var op = evidence.Operation;
-                Require(intent.SchemaVersion == 1 && intent.Direction == "Upload" && intent.OperationId == op.OperationId
+                Require(intent.SchemaVersion == 1 && IsDirection(intent.Direction) && intent.OperationId == op.OperationId
                     && intent.SourceRoot == op.SourceRoot && intent.Fingerprint == op.CollectionFingerprint && intent.PreparationDigest == evidence.PreparationDigest
-                    && intent.Repository == repository && IsId(intent.Parent) && IsId(intent.OriginalTree), "Publication binding is invalid.");
+                    && intent.Repository == repository, "Publication binding is invalid.");
+                ValidateIntentShape(intent);
                 if (!records.TryGetValue("candidate.json", out var bytes))
                 {
                     Require(records.Count == 1, "Publication chain is incomplete.");
                     return new UploadResult(UploadStatus.Interrupted, null);
                 }
                 var candidate = Decode<Candidate>(bytes);
-                Require(candidate.SchemaVersion == 1 && candidate.IntentDigest == Digest(intentBytes) && IsId(candidate.Commit) && IsId(candidate.Tree), "Candidate record is invalid.");
+                Require(candidate.SchemaVersion == 1 && candidate.Direction == intent.Direction
+                    && candidate.IntentDigest == Digest(intentBytes) && IsId(candidate.Commit) && IsId(candidate.Tree), "Candidate record is invalid.");
                 if (records.TryGetValue("published.json", out var receiptBytes))
                 {
                     var receipt = Decode<Receipt>(receiptBytes);
@@ -189,6 +254,15 @@ public sealed class CollectionUploader(OperationPreparationStore preparations, G
             if (!names.Add(property.Name)) throw new JsonException();
             CheckDuplicates(property.Value);
         }
+    }
+    private static bool IsDirection(string direction) => direction is UploadDirection or InitializeDirection or BootstrapDirection or AdoptDirection;
+    // Initialize publishes a zero-parent root commit, so it has no parent/original tree to bind.
+    private static void ValidateIntentShape(Intent intent)
+    {
+        if (intent.Direction == InitializeDirection)
+            Require(intent.Parent is null && intent.OriginalTree is null, "Publication binding is invalid.");
+        else
+            Require(IsId(intent.Parent) && IsId(intent.OriginalTree), "Publication binding is invalid.");
     }
     private static bool IsId(string? id) => id is { Length: 40 } && id.All(char.IsAsciiHexDigitLower);
     private static string Digest(byte[] bytes) => Convert.ToHexStringLower(SHA256.HashData(bytes));

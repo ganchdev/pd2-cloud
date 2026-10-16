@@ -79,6 +79,11 @@ public partial class MainWindow : Window
         else model.CancelDisconnect();
     }
     private void CancelGitHub_Click(object? sender, RoutedEventArgs e) => Model?.GitHub.Cancel();
+    private void SyncAll_Click(object? sender, RoutedEventArgs e) => Model?.BeginUpload();
+    private async void ConfirmUpload_Click(object? sender, RoutedEventArgs e) { if (Model is { } m) await m.ConfirmUploadAsync(); }
+    private void CancelUpload_Click(object? sender, RoutedEventArgs e) => Model?.Sync.Cancel();
+    private async void OpenRecovery_Click(object? sender, RoutedEventArgs e) { if (Model is { } m) await m.OpenRecoveryAsync(); }
+    private async void AssessRecovery_Click(object? sender, RoutedEventArgs e) { if (Model is { } m) await m.AssessRecoveryAsync(); }
     private void CancelCloud_Click(object? sender, RoutedEventArgs e) => Model?.Cloud.Cancel();
     private async void CheckCloud_Click(object? sender, RoutedEventArgs e) { if (Model is { } m) await m.CheckCloudAsync(); }
     private async void OpenAuthorization_Click(object? sender, RoutedEventArgs e) { if (Model is { } m && m.GitHub.HasCode) await OpenBrowserAsync(m.GitHub.VerificationAddress); }

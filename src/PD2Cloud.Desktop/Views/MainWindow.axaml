@@ -132,15 +132,82 @@
                             <TextBlock Text="Repository" Classes="muted" />
                             <TextBlock Text="{Binding RepositoryName}" />
                             <TextBlock Text="{Binding SyncStatus}" FontSize="20" FontWeight="SemiBold" />
-                            <TextBlock Text="Your saves stay untouched until you choose to sync. Sync All is not available yet." Classes="muted" />
+                            <TextBlock Text="Your saves stay untouched until you choose to upload. Sync All only ever publishes an initial snapshot; it never replaces your local files." Classes="muted" />
+                            <TextBlock Text="{Binding SyncNotice}" IsVisible="{Binding HasSyncNotice}" />
                         </StackPanel>
                     </Border>
                     <WrapPanel>
-                        <Button Content="Sync All" Classes="primary" IsEnabled="False" Margin="0,0,12,12" ToolTip.Tip="Synchronization is not available yet." />
+                        <Button Content="{Binding SyncActionLabel}" Classes="primary" Click="SyncAll_Click" IsVisible="{Binding ShowSyncAction}" IsEnabled="{Binding CanSyncAll}" Margin="0,0,12,12" ToolTip.Tip="{Binding SyncAllReason}" />
                         <Button Content="Refresh" Click="Refresh_Click" Margin="0,0,12,12" />
+                        <Button Content="Review Upload Recovery" Click="OpenRecovery_Click" IsVisible="{Binding HasRecoveryEvidence}" Margin="0,0,12,12" />
                     </WrapPanel>
+                    <TextBlock Text="{Binding SyncAllReason}" IsVisible="{Binding HasSyncAllReason}" Classes="muted" />
                     <TextBlock Text="Refresh inspects local files and verifies cloud contents at one checked revision. It never transfers files." Classes="muted" />
                     <TextBlock Text="{Binding GitHub.Notice}" IsVisible="{Binding ShowGitHubNotice}" />
+                </StackPanel>
+                <StackPanel IsVisible="{Binding IsUploadReview}" Spacing="18">
+                    <TextBlock Text="Review Upload" Classes="title" />
+                    <TextBlock Text="{Binding Cloud.Notice}" />
+                    <Border Classes="card" IsVisible="{Binding Sync.IsBootstrapCase}">
+                        <StackPanel Spacing="10">
+                            <TextBlock Text="{Binding Sync.ReviewBootstrapTitle}" FontSize="20" FontWeight="SemiBold" />
+                            <TextBlock Text="{Binding Sync.ReviewBootstrapMessage}" />
+                        </StackPanel>
+                    </Border>
+                    <Border Classes="card">
+                        <StackPanel Spacing="10">
+                            <TextBlock Text="What will be published" FontSize="20" FontWeight="SemiBold" />
+                            <TextBlock Text="{Binding Sync.ReviewLocation}" Classes="muted" />
+                            <TextBlock Text="{Binding Sync.ReviewRepositoryLine}" />
+                            <TextBlock Text="{Binding Sync.ReviewSummary}" FontWeight="SemiBold" />
+                            <TextBlock Text="Collection fingerprint" Classes="muted" />
+                            <SelectableTextBlock Text="{Binding Sync.ReviewFingerprint}" TextWrapping="Wrap" FontSize="11" />
+                        </StackPanel>
+                    </Border>
+                    <CheckBox IsChecked="{Binding Sync.AdoptionAcknowledged, Mode=TwoWay}" IsVisible="{Binding Sync.RequiresAdoptionAcknowledgement}"
+                              Content="I understand this will adopt a repository that already contains unrelated files, preserving them unchanged." />
+                    <TextBlock Text="{Binding Sync.ReviewRequirementNotice}" IsVisible="{Binding Sync.HasReviewRequirementNotice}" Foreground="#E0B15A" />
+                    <TextBlock Text="Confirming publishes this snapshot to your private repository and records the published revision locally as the last upload. It does not replace your local files and is not a verified two-device synchronization." Classes="muted" />
+                    <ProgressBar IsIndeterminate="True" Height="3" IsVisible="{Binding Sync.IsBusy}" />
+                    <TextBlock Text="{Binding Sync.ReviewNotice}" IsVisible="{Binding Sync.HasReviewNotice}" />
+                    <TextBlock Text="{Binding Sync.ResultTitle}" FontSize="20" FontWeight="SemiBold" IsVisible="{Binding Sync.HasResult}" />
+                    <TextBlock Text="{Binding Sync.ResultMessage}" IsVisible="{Binding Sync.HasResult}" />
+                    <WrapPanel>
+                        <Button Content="Confirm Upload" Classes="primary" Click="ConfirmUpload_Click" IsEnabled="{Binding Sync.CanConfirm}" Margin="0,0,12,12" />
+                        <Button Content="Cancel Upload" Click="CancelUpload_Click" IsVisible="{Binding Sync.IsBusy}" Margin="0,0,12,12" />
+                        <Button Content="Back to Saves" Click="Dashboard_Click" Margin="0,0,12,12" />
+                    </WrapPanel>
+                    <Expander Header="Files to publish" IsExpanded="True" HorizontalAlignment="Stretch">
+                        <ItemsControl ItemsSource="{Binding Sync.ReviewFiles}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="core:FileEntry">
+                                    <Border BorderBrush="#303947" BorderThickness="0,0,0,1" Padding="4,10">
+                                        <StackPanel Spacing="3">
+                                            <SelectableTextBlock Text="{Binding RelativePath}" TextWrapping="Wrap" />
+                                            <TextBlock Text="{Binding SizeBytes}" Classes="muted" />
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </Expander>
+                </StackPanel>
+                <StackPanel IsVisible="{Binding IsRecovery}" Spacing="18">
+                    <TextBlock Text="Upload Recovery" Classes="title" />
+                    <TextBlock Text="Review an upload that was interrupted, lost or overtaken by another change. This screen only reads retained evidence; it never uploads again, replaces files or changes a baseline." Classes="muted" />
+                    <Border Classes="card">
+                        <StackPanel Spacing="10">
+                            <TextBlock Text="{Binding Sync.RecoveryEvidenceLine}" FontWeight="SemiBold" />
+                            <TextBlock Text="{Binding Sync.RecoveryStatusTitle}" IsVisible="{Binding Sync.HasRecoveryStatus}" FontSize="18" FontWeight="SemiBold" />
+                            <TextBlock Text="{Binding Sync.RecoveryMessage}" IsVisible="{Binding Sync.HasRecoveryStatus}" />
+                            <TextBlock Text="{Binding Sync.RecoveryNotice}" IsVisible="{Binding Sync.HasRecoveryNotice}" />
+                        </StackPanel>
+                    </Border>
+                    <ProgressBar IsIndeterminate="True" Height="3" IsVisible="{Binding Sync.IsBusy}" />
+                    <WrapPanel>
+                        <Button Content="Re-check Evidence" Classes="primary" Click="AssessRecovery_Click" IsEnabled="{Binding CanAssessRecovery}" Margin="0,0,12,12" />
+                        <Button Content="Back to Saves" Click="Dashboard_Click" Margin="0,0,12,12" />
+                    </WrapPanel>
                 </StackPanel>
                 <StackPanel IsVisible="{Binding IsSettings}" Spacing="20">
                     <TextBlock Text="Settings" Classes="title" />
