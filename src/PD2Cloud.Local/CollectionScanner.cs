@@ -10,7 +10,10 @@ public sealed class CollectionScanner(IFileFingerprintReader? reader = null, str
     public Task<CollectionManifest> ScanAsync(string path, CancellationToken cancellationToken) =>
         Task.Run(() => Scan(path, cancellationToken), cancellationToken);
 
-    private CollectionManifest Scan(string path, CancellationToken token)
+    // Only application-owned snapshot verification may bypass the source/storage overlap rule.
+    internal CollectionManifest ScanOwned(string path, CancellationToken token) => Scan(path, token, owned: true);
+
+    private CollectionManifest Scan(string path, CancellationToken token, bool owned = false)
     {
         var issues = new List<ValidationIssue>();
         var root = path;
@@ -21,7 +24,7 @@ public sealed class CollectionScanner(IFileFingerprintReader? reader = null, str
         {
             token.ThrowIfCancellationRequested();
             root = Path.GetFullPath(path);
-            if (!ApplicationDataPaths.IsSourceAllowed(root, applicationDirectory))
+            if (!owned && !ApplicationDataPaths.IsSourceAllowed(root, applicationDirectory))
             {
                 issues.Add(new(ValidationCode.UnsafePath, "Select a folder outside application-owned state and staging, and not a parent of that location."));
                 return Result([], false);
@@ -78,9 +81,9 @@ public sealed class CollectionScanner(IFileFingerprintReader? reader = null, str
         }).ToArray();
     }
 
-    private sealed record Metadata(string RelativePath, string FullPath, bool IsDirectory, long SizeBytes, DateTime WriteTime);
+    internal sealed record Metadata(string RelativePath, string FullPath, bool IsDirectory, long SizeBytes, DateTime WriteTime);
 
-    private static Metadata[] Inventory(string root, CancellationToken token, List<ValidationIssue> issues)
+    internal static Metadata[] Inventory(string root, CancellationToken token, List<ValidationIssue> issues)
     {
         var directory = new DirectoryInfo(root);
         ValidateAncestors(directory, token);
@@ -131,7 +134,7 @@ public sealed class CollectionScanner(IFileFingerprintReader? reader = null, str
         return entries.OrderBy(e => e.RelativePath, StringComparer.Ordinal).ToArray();
     }
 
-    private static void CheckInventory(string root, Metadata[] before, CancellationToken token)
+    internal static void CheckInventory(string root, Metadata[] before, CancellationToken token)
     {
         var issues = new List<ValidationIssue>();
         if (!before.SequenceEqual(Inventory(root, token, issues)) || issues.Count > 0) throw new UnstableCollectionException();
@@ -157,7 +160,7 @@ public sealed class CollectionScanner(IFileFingerprintReader? reader = null, str
     public static string Fingerprint(IReadOnlyList<FileEntry> files) => CollectionInventory.Fingerprint(files);
 
     private sealed class UnsafeFolderException(string path) : Exception(path);
-    private sealed class UnstableCollectionException : Exception;
+    internal sealed class UnstableCollectionException : Exception;
     private sealed class SourceReadException(string path, Exception inner) : IOException(path, inner)
     {
         public string RelativePath { get; } = path;

@@ -1,6 +1,6 @@
 # PD2 Cloud delivery plan
 
-Revised 2026-10-15 for generic folder synchronization. Earlier game-format inventory and gameplay evidence gates no longer apply. Deliver small reviewable chunks; build, formatting and meaningful behavior tests gate each chunk. Native behavior requires platform checks.
+Revised 2026-10-16 for generic folder synchronization. Earlier game-format inventory and gameplay evidence gates no longer apply. Deliver small reviewable chunks; build, formatting and meaningful behavior tests gate each chunk. Native behavior requires platform checks.
 
 ## Status at a glance
 
@@ -13,9 +13,10 @@ Revised 2026-10-15 for generic folder synchronization. Earlier game-format inven
 | 4. Collection comparison | Implemented | Pure Core API with task-6 advisory desktop integration; baseline persistence and transfer gates remain future work |
 | 5. GitHub connection | Implemented; live acceptance pending | Verify configured app registration, live device/token/repository checks and remaining native platform gates |
 | 6. Cloud reads | Implemented; live acceptance pending | Pinned verification, classification and advisory desktop comparison; see [cloud reads](cloud-reads.md) |
-| 7–11. Recovery, transfers and distribution | Not started | See subsequent chunks below |
+| 7. Backups and recovery | Implemented as a local preparation/assessment API | No desktop invocation or source replacement; see [backups and recovery](backups-recovery.md) |
+| 8–11. Transfers and distribution | Not started | See subsequent chunks below |
 
-The next planned implementation task is **task 7 (backups and recovery)**, only with separate direction. Task 5 live acceptance gates are tracked in [GitHub connection](github-connection.md). Native acceptance can be completed separately; obsolete game-profile evidence does not block further generic-folder work.
+Task 7 is implemented within its local-only safety boundary. The next planned task is **task 8 (first safe upload)**, only with separate direction and its additional write gates. Task 5 live acceptance gates are tracked in [GitHub connection](github-connection.md). Native acceptance can be completed separately; obsolete game-profile evidence does not block further generic-folder work.
 
 ## Implementation history
 
@@ -75,13 +76,19 @@ Shared onboarding and Settings screens replace the single connection panel. Adde
 
 Implemented read-only pinned Git object and manifest verification, empty/managed/unrelated/incompatible classification, explicit unavailable states and advisory desktop comparison. Checks run after selection/restoration and dashboard Refresh. Complete tree hashes and managed blob bytes are verified, resource limits fail closed, changing heads/access reject the observation, and account/selection changes cancel stale results. Local inspection remains independent. See [cloud reads](cloud-reads.md) for schema, limits and trust boundaries. No successful baseline, ancestry lookup, adoption, transfers or source writes are implemented. All 208 tests, standard Release build (zero warnings/errors), formatting and diff checks pass on macOS. Actual MainWindow cloud states were rendered/inspected with synthetic HTTP at normal/minimum sizes. Live GitHub and native/cross-platform acceptance remain open.
 
+## Backups and recovery (task 7, 2026-10-16)
+
+Implemented a local-only preparation API with independently copied capture/backup bytes, complete revalidation, separate immutable inventory metadata, append-only chained progress journals, file-copy intents and process/storage serialization. Recovery checks evidence without writing source files, retains partial/corrupt data and blocks later edits or unresolved preparations. Tests interrupt every observed persistence/copy boundary and use abrupt subprocess exit/kill for recovery and OS lease evidence. No desktop invocation, transfers, source replacement, baseline persistence or cleanup was enabled. See [the task-7 contract](backups-recovery.md) for limits, durability and later write gates.
+
+Task-7 macOS validation: all **260 tests** pass (52 new cases, including abrupt subprocess exits and process-death lease release), standard Release build passes with zero warnings/errors, and formatting/diff checks pass. Native Windows/Linux, live GitHub and hosted CI acceptance remain open.
+
 ## Subsequent chunks
 
 | Chunk | Deliverable and gate |
 |---|---|
 | 5. GitHub connection | Implemented; registered app/live checks and remaining native acceptance required (see above) |
 | 6. Cloud reads | Implemented: pinned manifests/trees/blobs, classifications, bounded offline/error states and advisory comparison. No source/repository writes; live acceptance pending |
-| 7. Backups and recovery | Immutable capture, verified backups, durable journals and serialized operations; interruption tests before enabling source writes |
+| 7. Backups and recovery | Implemented: immutable capture, independently verified complete backups, strict durable journals, serialized preparation/assessment and interruption/subprocess tests. Source writes remain disabled |
 | 8. First safe upload | Explicit Sync All, private-repo checks, managed namespace, unrelated-content preservation and non-forced publication |
 | 9. First safe download | Verified install into an empty target, then one-sided changes both ways; byte-identical two-device and recovery tests |
 | 10. Conflict/missing-file review | Preserve both snapshots, explicit complete-side choice and stale-review invalidation; archival/removal decision required |

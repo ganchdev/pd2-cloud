@@ -1,6 +1,6 @@
 # PD2 Cloud implementation plan
 
-Revised 2026-10-15. The generic folder synchronization specification supersedes the earlier format-aware discovery architecture.
+Revised 2026-10-16. The generic folder synchronization specification supersedes the earlier format-aware discovery architecture.
 
 PD2 Cloud is a generic folder synchronization engine. All regular files within the selected directory are treated as opaque binary data. It will synchronize a complete recursive file inventory as one logical snapshot through a private GitHub repository. There is no game-format parser or game configuration model.
 
@@ -12,7 +12,7 @@ Use C#/.NET 10 and Avalonia MVVM. Core holds generic models, pure collection com
 
 Task 2 implements local recursive inspection and a simple file dashboard. Inspection has no cloud state and never establishes a baseline. Task 3 persists the selected folder outside the source tree and restores it with a fresh inspection. See the [delivery plan](delivery-plan.md).
 
-## Implemented as of 2026-10-15
+## Implemented as of 2026-10-16
 
 | Area | Built behavior |
 |---|---|
@@ -26,13 +26,14 @@ Task 2 implements local recursive inspection and a simple file dashboard. Inspec
 | Comparison | Pure complete-inventory decision table, missing-file review and typed safety blocks; task-6 advisory desktop integration without a baseline |
 | GitHub connection | Device flow, serialized refresh, native-only credential storage, private repository metadata selection and disconnect; live acceptance pending |
 | Cloud reads | Pinned tree/blob verification, managed storage schema, repository classifications, bounded reads and invalidation; see [cloud reads](cloud-reads.md) |
+| Recovery preparation | Immutable capture, verified complete backups, durable journals, serialized preparation/assessment and interruption tests; [contract](backups-recovery.md) |
 | Future baseline boundary | `LocalSyncState` is a supplied comparison input and reserved path only; no baseline persistence or remote behavior |
 
 The former profile registry, format-specific inventory policies, sidecar associations, stash questions/configuration, game-version fields and their tests have been removed. The old metadata-only inspector was also removed; the desktop now uses one generic scanner interface. The read-only fingerprint reader and native folder picker were reused.
 
 Verification on macOS passed: 29 test cases, formatting, and a Release build with zero warnings/errors. The real window was rendered and visually inspected through a temporary native harness with a test picker. Hosted CI results were not available during local verification of this refactor. CI is configured for Windows, macOS and Linux; native picker and Windows/Linux acceptance remain open.
 
-Tasks 2–6 are implemented; task 5 supports a developer-supplied public client ID and requires live registration/authentication/repository acceptance and remaining native platform checks. Task 7 (backups and recovery) is next only with separate direction. Task-4 verification passed 97 tests, standard Release build and formatting on macOS. Task-5 verification passed 127 tests (30 new), a standard Release build with zero warnings/errors and formatting on macOS. Task-5 contract, setup and acceptance are in [GitHub connection](github-connection.md). Folder settings remain separate from successful-sync state and credentials. No transfers, backups/recovery or baseline persistence exist.
+Tasks 2–7 are implemented; task 5 supports a developer-supplied public client ID and requires live registration/authentication/repository acceptance and remaining native platform checks. Task 7 provides local-only preparation/assessment; task 8 requires separate direction and additional publication gates. Task-4 verification passed 97 tests, standard Release build and formatting on macOS. Task-5 verification passed 127 tests (30 new), a standard Release build with zero warnings/errors and formatting on macOS. Task-5 contract, setup and acceptance are in [GitHub connection](github-connection.md). Folder settings remain separate from successful-sync state and credentials. No transfers, source replacement or baseline persistence exist.
 
 ## Comparison and future synchronization
 
@@ -73,9 +74,11 @@ Task 5 implements GitHub App device polling, cancellation, expiry, slowdown and 
 
 Initialize repository contents only during explicit synchronization, with confirmation before adopting an unrelated populated repository. Empty-repository bootstrap is not a completed save upload. Upload immutable captured bytes, create a commit parented on the observed head and publish with `force: false`. A competing update requires refreshing and replanning, not reparenting blindly. Record candidate commits before publication; after lost responses inspect whether publication succeeded before retrying.
 
-## Future local safety and recovery
+## Local safety and recovery
 
-Store settings, successful-sync state and backups in platform application data, outside the selected root. Future staging must be outside the inspected tree while allowing same-filesystem installation. Reject source configurations containing app-owned state/staging. There is no reserved filename exclusion in generic discovery.
+Task 7 implements [immutable capture, complete backups, durable journals and serialized recovery assessment](backups-recovery.md) in Local. The desktop does not invoke preparation or assessment yet; it remains read-only with Sync All disabled. Existing operation evidence blocks another preparation. Interrupted/corrupt evidence is retained for review, and later source edits are never restored over.
+
+Store settings, future successful-sync state and backups in platform application data, outside the selected root. Future staging must be outside the inspected tree while allowing same-filesystem installation. Reject source configurations containing app-owned state/staging. There is no reserved filename exclusion in generic discovery.
 
 Use versioned durable temporary-write-and-rename records. Keep configuration, successful baseline, remote cache, backup metadata and operation journals separate. Inspection manifests are observations, never successful-sync records.
 

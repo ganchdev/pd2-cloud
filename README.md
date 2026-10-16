@@ -29,7 +29,7 @@ mise run test
 ## Layout
 
 - `src/PD2Cloud.Core`: generic manifests, pure collection comparison, validation and future baseline models; scanner interface and portable path rules.
-- `src/PD2Cloud.Local`: recursive inspection, read-only hashing and versioned folder settings in application data.
+- `src/PD2Cloud.Local`: recursive inspection, read-only hashing, folder settings and local capture/backup/recovery preparation in application data.
 - `src/PD2Cloud.GitHub`: device authorization, serialized token refresh, private repository metadata selection and bounded Git object reads.
 - `src/PD2Cloud.Remote`: pinned Git object/manifest verification and repository content classification, bridging GitHub to Core.
 - `src/PD2Cloud.Platform`: native Keychain, Credential Manager and Linux Secret Service credential adapters.
@@ -39,6 +39,8 @@ mise run test
 See [folder inspection](docs/folder-inspection.md), [verified cloud reads](docs/cloud-reads.md), the [implementation plan](docs/implementation-plan.md) and the [delivery tracker](docs/delivery-plan.md) for rules, limitations and remaining work. Folder selection is saved in platform application data and restored with a fresh read-only inspection on restart. Settings notices explain restoration or save failures. GitHub access stays separate from filesystem inspection; no transfers or successful-sync persistence are implemented.
 
 Core compares complete baseline/local/verified-remote inventories. Disjoint edits still conflict; missing baseline files require review even when both sides match. Unknown remote state never means empty. Task 6 connects verified managed collections to advisory desktop comparison without a baseline. Matching files do not establish successful synchronization. Empty uninitialized, unrelated and incompatible repositories cannot supply a fabricated verified collection. See the [comparison contract](docs/collection-comparison.md) and [remote storage format and limits](docs/cloud-reads.md).
+
+Task 7 adds [immutable capture, verified complete backups and durable recovery journals](docs/backups-recovery.md) through a local-only API. It serializes preparation/assessment across store instances and cooperating processes, preserves all evidence and blocks interrupted, corrupt or changed-source reuse. The desktop does not invoke this API yet; Sync All stays disabled. No source replacement, automatic restore, transfers or baseline persistence exists.
 
 The source repository is public. Storage selection requires a separate private repository.
 

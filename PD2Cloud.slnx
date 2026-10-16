@@ -8,6 +8,7 @@
     <Project Path="src/PD2Cloud.Local/PD2Cloud.Local.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/PD2Cloud.RecoveryProbe/PD2Cloud.RecoveryProbe.csproj" />
     <Project Path="tests/PD2Cloud.Tests/PD2Cloud.Tests.csproj" />
   </Folder>
 </Solution>

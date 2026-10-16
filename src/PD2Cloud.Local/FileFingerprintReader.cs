@@ -15,6 +15,30 @@ public interface IFileFingerprintReader
 public sealed class FileFingerprintReader : IFileFingerprintReader
 {
     public FileFingerprint Read(string path, CancellationToken token)
+        => ReadOrCopy(path, null, token);
+
+    internal FileFingerprint Copy(string path, Stream destination, CancellationToken token, Action? copiedChunk = null)
+        => ReadOrCopy(path, destination, token, copiedChunk);
+
+    internal static byte[] ReadBounded(string path, int limit, CancellationToken token)
+    {
+        using var handle = OpenRegularFile(path);
+        var length = RandomAccess.GetLength(handle);
+        if (length > limit) throw new IOException("Recovery record exceeds the size limit.");
+        var bytes = new byte[(int)length];
+        var offset = 0;
+        while (offset < bytes.Length)
+        {
+            token.ThrowIfCancellationRequested();
+            var count = RandomAccess.Read(handle, bytes.AsSpan(offset), offset);
+            if (count == 0) throw new IOException("Recovery record changed while reading.");
+            offset += count;
+        }
+        if (RandomAccess.GetLength(handle) != length) throw new IOException("Recovery record changed while reading.");
+        return bytes;
+    }
+
+    private static FileFingerprint ReadOrCopy(string path, Stream? destination, CancellationToken token, Action? copiedChunk = null)
     {
         token.ThrowIfCancellationRequested();
         using var handle = OpenRegularFile(path);
@@ -28,6 +52,8 @@ public sealed class FileFingerprintReader : IFileFingerprintReader
             var count = RandomAccess.Read(handle, buffer.AsSpan(0, (int)Math.Min(buffer.Length, length - offset)), offset);
             if (count == 0) throw new IOException("File shrank during hashing.");
             hash.AppendData(buffer, 0, count);
+            destination?.Write(buffer, 0, count);
+            copiedChunk?.Invoke();
             offset += count;
         }
         token.ThrowIfCancellationRequested();

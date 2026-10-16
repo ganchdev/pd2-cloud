@@ -36,3 +36,7 @@ Results are advisory observations, never permission to transfer or advance a bas
 On macOS, 52 added pure cases cover the decision table, matching/disjoint changes, missing paths, invalid manifests/baselines, identity mismatch, unknown remote state and history checks. All 97 project tests passed; standard `mise run build` passed with zero warnings/errors and `mise run format:check` passed. Existing scanner fingerprint vectors still pass after sharing the encoding in Core. No UI changes were required. Native Windows/Linux and hosted CI results have not been checked for this task.
 
 The [setup UX follow-up](github-setup-ux.md) keeps these boundaries: changing repositories clears the displayed verified selection before revalidation, and no comparison result or synchronization status is reused for a new pairing. The UI reports Not yet synchronized or Needs attention and shows task-6 advisory decisions only with verified cloud inputs. Matching files never establish synchronization success. Metadata/account/selection changes cancel and invalidate cloud evidence.
+
+## Shared validation and task 7
+
+Inventory/manifest validation now lives in `CollectionInventory.IsValidFiles` and `IsValidManifest`, shared by the comparer and [local preparation/recovery](backups-recovery.md). The comparison decision order and results are unchanged. Task 7 produces retained local evidence, not remote verification, ancestry evidence or a successful baseline; no preparation record can authorize a comparison-driven write.

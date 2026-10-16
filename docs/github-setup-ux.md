@@ -48,3 +48,7 @@ All 143 tests pass on macOS (16 new workflow/preference cases). The standard Rel
 Real MainWindow rendering with scripted HTTP and an in-memory test credential store was inspected on macOS at normal and minimum sizes. The temporary harness and captures live at `/private/tmp/pd2-setup-ui/`; they are not product dependencies or live authentication evidence. Native rendering requires execution outside the sandbox on this Mac. Live browser/clipboard/picker interaction, installed-app navigation and device approval still require manual acceptance, as do Windows/Linux native behavior and signed macOS secure storage. No live GitHub authorization, remote writes, hosted CI or cross-platform execution is claimed.
 
 Temporary harness builds encountered an inaccessible NuGet vulnerability cache and intermittent MSBuild worker exits. A single-worker harness build followed by running the built executable outside the sandbox completed rendering successfully. No dependency/audit/telemetry configuration was changed.
+
+## Task-7 local safety boundary
+
+[Backups and recovery](backups-recovery.md) adds a local-only preparation/assessment API. It has no GitHub dependency and is not invoked by this desktop journey. Connection, cloud reads, startup and Refresh keep their existing behavior; Sync All remains disabled. No source/repository writes, initialization/adoption, baseline persistence, automatic restoration or background synchronization were enabled. Live GitHub and native acceptance gates above remain open.

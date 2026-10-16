@@ -1,6 +1,6 @@
 # Generic folder inspection
 
-Implementation reference, updated 2026-10-15. Tasks 2–6 are implemented; GitHub/cloud reads remain separate from local inspection. Transfers and successful-sync persistence are unimplemented.
+Implementation reference, updated 2026-10-15. Tasks 2–7 are implemented; GitHub/cloud reads remain separate from local inspection. Transfers and successful-sync persistence are unimplemented.
 
 PD2 Cloud is a generic folder synchronization engine. All regular files within the selected directory are treated as opaque binary data. The product's save-folder wording is presentation only; discovery contains no format knowledge or file-content parsing.
 
@@ -108,3 +108,7 @@ Task-4 macOS verification: standard `mise run test` passed all 97 cases, `mise r
 ## Independent GitHub connection (task 5)
 
 The desktop now also offers GitHub App connection and private repository selection. The scanner, folder settings, manifest/fingerprint rules and pure comparison are unchanged. Local startup inspection and Retry Inspection do not call GitHub or touch credentials. Dashboard Refresh independently checks GitHub account/repository metadata and then runs task-6 pinned cloud verification. Connection startup restores native credentials and reads account/repository metadata independently; a stalled or failed GitHub operation leaves folder inspection usable. Task 6 now adds read-only remote inventories and advisory comparison through the separate Remote bridge; local scanning remains unchanged. No repository/source writes, baseline persistence or background sync exist. See [cloud reads](cloud-reads.md). See [GitHub connection](github-connection.md) for setup, tests and remaining live/native acceptance gates.
+
+## Local recovery preparation (task 7)
+
+[Task 7](backups-recovery.md) reuses the scanner and regular-file reader for a separate local-only capture/backup API. Public inspection behavior and inclusion rules are unchanged. An internal owned-snapshot scan bypasses only the application-storage overlap rejection so retained app-owned copies can be verified; all path/link/stability checks remain. The public scanner still rejects application storage, and desktop startup/Refresh never invoke preparation. Preparation limits block whole operations without narrowing generic inspection. The source is never replaced, no baseline is written and Sync All stays disabled.

@@ -34,13 +34,13 @@ public static class CollectionComparer
 
         if (string.IsNullOrWhiteSpace(pairing.RepositoryIdentity) || string.IsNullOrWhiteSpace(pairing.Branch)
             || string.IsNullOrWhiteSpace(pairing.LocalRootPath)) return Blocked(ComparisonBlock.InvalidPairing);
-        if (!ValidManifest(local) || local!.RootPath != pairing.LocalRootPath) return Blocked(ComparisonBlock.InvalidLocalInspection);
+        if (!CollectionInventory.IsValidManifest(local) || local!.RootPath != pairing.LocalRootPath) return Blocked(ComparisonBlock.InvalidLocalInspection);
         if (remote.Verification == RemoteVerification.Unavailable) return Blocked(ComparisonBlock.RemoteUnavailable);
         if (remote.Verification != RemoteVerification.Verified || string.IsNullOrWhiteSpace(remote.Commit))
             return Blocked(ComparisonBlock.RemoteUnverified);
         if (remote.RepositoryIdentity != pairing.RepositoryIdentity || remote.Branch != pairing.Branch)
             return Blocked(ComparisonBlock.RemoteIdentityMismatch);
-        if (!ValidManifest(remote.Manifest)) return Blocked(ComparisonBlock.InvalidRemoteInspection);
+        if (!CollectionInventory.IsValidManifest(remote.Manifest)) return Blocked(ComparisonBlock.InvalidRemoteInspection);
         var remoteFiles = remote.Manifest!.Files;
 
         if (baseline is not null)
@@ -48,7 +48,7 @@ public static class CollectionComparer
             if (baseline.RepositoryIdentity != pairing.RepositoryIdentity || baseline.Branch != pairing.Branch
                 || baseline.LocalRootPath != pairing.LocalRootPath) return Blocked(ComparisonBlock.BaselineIdentityMismatch);
             if (baseline.SchemaVersion != 1 || string.IsNullOrWhiteSpace(baseline.LastSynchronizedCommit)
-                || !ValidFiles(baseline.Files)) return Blocked(ComparisonBlock.InvalidBaseline);
+                || !CollectionInventory.IsValidFiles(baseline.Files)) return Blocked(ComparisonBlock.InvalidBaseline);
             if (remote.History == BaselineHistory.Rewritten) return Blocked(ComparisonBlock.RewrittenHistory);
             if (remote.Commit != baseline.LastSynchronizedCommit && remote.History != BaselineHistory.ContainsBaseline)
                 return Blocked(ComparisonBlock.UnverifiedHistory);
@@ -74,32 +74,4 @@ public static class CollectionComparer
     private static bool Equal(IReadOnlyList<FileEntry> left, IReadOnlyList<FileEntry> right) =>
         left.OrderBy(f => f.RelativePath, StringComparer.Ordinal).SequenceEqual(right.OrderBy(f => f.RelativePath, StringComparer.Ordinal));
 
-    private static bool ValidManifest(CollectionManifest? manifest) => manifest is { SchemaVersion: 1, IsStable: true, Issues.Count: 0 }
-        && ValidFiles(manifest.Files) && manifest.CollectionFingerprint == CollectionInventory.Fingerprint(manifest.Files);
-
-    private static bool ValidFiles(IReadOnlyList<FileEntry>? files)
-    {
-        if (files is null) return false;
-        var entries = new Dictionary<string, (string Path, bool File)>(StringComparer.Ordinal);
-        foreach (var file in files)
-        {
-            if (file is null || !RelativePaths.IsSafe(file.RelativePath) || file.RelativePath != RelativePaths.Canonical(file.RelativePath)
-                || file.SizeBytes < 0 || file.Sha256 is not { Length: 64 } || file.Sha256.Any(c => !char.IsAsciiHexDigitLower(c))) return false;
-            // Include implied directories so A/x + a/y and file + file/child cannot slip through.
-            var segments = file.RelativePath.Split('/');
-            var path = "";
-            for (var i = 0; i < segments.Length; i++)
-            {
-                path += (i == 0 ? "" : "/") + segments[i];
-                var isFile = i == segments.Length - 1;
-                var key = RelativePaths.CollisionKey(path);
-                if (entries.TryGetValue(key, out var previous))
-                {
-                    if (previous.Path != path || previous.File || isFile) return false;
-                }
-                else entries.Add(key, (path, isFile));
-            }
-        }
-        return true;
-    }
 }

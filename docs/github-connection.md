@@ -110,3 +110,7 @@ Remaining gates before task 5 can be accepted live:
 4. Verify native keyboard/pointer, browser code entry, cancellation/close and local inspection under offline/rate-limited GitHub conditions on the target platforms. No new hosted CI, packaging or multi-process acceptance is claimed.
 
 Task 6 (verified pinned cloud reads) is implemented as described in [cloud reads](cloud-reads.md). No transfers, automatic merging/deletion, background synchronization or baseline persistence exist. Task-5 live/native acceptance above remains open.
+
+## Task-7 local safety boundary
+
+[Backups and recovery](backups-recovery.md) adds a local-only preparation/assessment API. It has no GitHub dependency and is not invoked by this desktop journey. Connection, cloud reads, startup and Refresh keep their existing behavior; Sync All remains disabled. No source/repository writes, initialization/adoption, baseline persistence, automatic restoration or background synchronization were enabled. Live GitHub and native acceptance gates above remain open.

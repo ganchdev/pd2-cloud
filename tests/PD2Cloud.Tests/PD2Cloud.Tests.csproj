@@ -12,5 +12,6 @@
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" PrivateAssets="all" />
     <ProjectReference Include="../../src/PD2Cloud.Desktop/PD2Cloud.Desktop.csproj" />
     <ProjectReference Include="../../src/PD2Cloud.Local/PD2Cloud.Local.csproj" />
+    <ProjectReference Include="../PD2Cloud.RecoveryProbe/PD2Cloud.RecoveryProbe.csproj" />
   </ItemGroup>
 </Project>
