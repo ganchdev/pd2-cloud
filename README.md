@@ -1,6 +1,6 @@
 # PD2 Cloud
 
-PD2 Cloud is a generic folder synchronization engine. All regular files within the selected directory are treated as opaque binary data. GitHub-backed synchronization and version history are planned; the current application provides read-only local inspection.
+PD2 Cloud is a generic folder synchronization engine. All regular files within the selected directory are treated as opaque binary data. The current application provides read-only local inspection and GitHub App connection/private repository selection. GitHub-backed synchronization and version history are planned.
 
 Choose **Select Folder** to inspect any physical local folder, including its subdirectories. **Refresh** reflects added, changed and removed files. File sizes, SHA-256 hashes and filesystem issues are available under **Inspection Details**. Inspection success does not mean files are synchronized with GitHub.
 
@@ -30,13 +30,25 @@ mise run test
 
 - `src/PD2Cloud.Core`: generic manifests, pure collection comparison, validation and future baseline models; scanner interface and portable path rules.
 - `src/PD2Cloud.Local`: recursive inspection, read-only hashing and versioned folder settings in application data.
-- `src/PD2Cloud.Desktop`: Avalonia views, view model and native folder picker.
+- `src/PD2Cloud.GitHub`: device authorization, serialized token refresh and private repository metadata selection.
+- `src/PD2Cloud.Platform`: native Keychain, Credential Manager and Linux Secret Service credential adapters.
+- `src/PD2Cloud.Desktop`: Avalonia views, independent inspection/connection view models and native folder picker.
 - `tests/PD2Cloud.Tests`: comparison decision tables, filesystem and view-model behavior tests.
 
-See [folder inspection](docs/folder-inspection.md), the [implementation plan](docs/implementation-plan.md) and the [delivery tracker](docs/delivery-plan.md) for rules, limitations and remaining work. Folder selection is saved in platform application data and restored with a fresh read-only inspection on restart. Settings notices explain restoration or save failures. No authentication, remote access, baseline persistence or synchronization is implemented.
+See [folder inspection](docs/folder-inspection.md), the [implementation plan](docs/implementation-plan.md) and the [delivery tracker](docs/delivery-plan.md) for rules, limitations and remaining work. Folder selection is saved in platform application data and restored with a fresh read-only inspection on restart. Settings notices explain restoration or save failures. GitHub connection is separate from inspection; no cloud inventory reads, baseline persistence or synchronization is implemented.
 
 Task 4 adds a pure Core comparison API for complete baseline/local/verified-remote inventories. It reports no transfer, initial upload/download, one-sided upload/download, whole-collection conflict, missing-file review or a blocking reason. Disjoint edits still conflict; missing baseline files require review even when both sides match. Unknown remote state never means empty. Comparison is not connected to the desktop and does not perform transfers or create a baseline. See the [comparison contract](docs/collection-comparison.md).
 
-The source repository is public. Future save storage will use a separate private repository.
+The source repository is public. Storage selection requires a separate private repository.
+
+## GitHub connection
+
+Follow the [five-step GitHub App setup guide](docs/github-connection.md#create-and-connect-a-github-app-in-five-steps) to register, install and connect the app.
+
+`mise.toml` supplies the public GitHub App client ID as `PD2CLOUD_GITHUB_CLIENT_ID` for development runs. To use your own registration, override it in ignored `mise.local.toml`, then restart. Launches outside mise need that environment variable too; local inspection works without it. The registered app must enable device flow, request Contents read/write and Metadata read, and be installed on the chosen private repository. Never configure an app secret, private key or PAT.
+
+Use **Connect to GitHub**, open the displayed GitHub device address and enter the code. **Reload Repositories** lists eligible private repositories; **Use Repository** rechecks access and saves the repository/default-branch metadata securely. **Disconnect** removes this client's local credentials and selection; remote revocation is separate in GitHub settings. No repository contents are read or written by onboarding, startup or local Refresh.
+
+Credentials use macOS Keychain, Windows Credential Manager or Linux Secret Service (`secret-tool`, a session bus and available/unlocked service required), with no plaintext fallback. Native storage failure blocks connection while inspection remains available. See [GitHub setup, security boundaries and acceptance gates](docs/github-connection.md). A public client ID is configured; live authentication and repository acceptance remain unverified. A disposable macOS Keychain round trip and scripted real-window rendering passed; Windows/Linux native acceptance remains open.
 
 PD2 Cloud is not affiliated with Blizzard Entertainment or Project Diablo 2.

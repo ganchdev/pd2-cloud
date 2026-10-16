@@ -6,7 +6,7 @@ namespace PD2Cloud.Desktop.ViewModels;
 
 public enum InspectionState { Initial, Scanning, ScannedSuccessfully, NeedsAttention, Failed }
 
-public sealed class MainWindowViewModel(ICollectionScanner scanner, IFolderPicker picker, IFolderSettingsStore? settings = null) : INotifyPropertyChanged, IDisposable
+public sealed class MainWindowViewModel(ICollectionScanner scanner, IFolderPicker picker, IFolderSettingsStore? settings = null, GitHubConnectionViewModel? github = null) : INotifyPropertyChanged, IDisposable
 {
     private CancellationTokenSource? scan;
     private long generation;
@@ -20,6 +20,8 @@ public sealed class MainWindowViewModel(ICollectionScanner scanner, IFolderPicke
     private string status = "Select your save folder to get started.";
     private InspectionState state;
     private CollectionManifest? manifest;
+
+    public GitHubConnectionViewModel? GitHub { get; } = github;
 
     public event PropertyChangedEventHandler? PropertyChanged;
     public string? SelectedPath => selectedPath;
@@ -174,6 +176,7 @@ public sealed class MainWindowViewModel(ICollectionScanner scanner, IFolderPicke
     public void Dispose()
     {
         disposed = true;
+        GitHub?.Dispose();
         ++generation;
         scan?.Cancel();
         Notify();

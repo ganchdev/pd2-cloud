@@ -6,6 +6,7 @@ DOTNET_CLI_TELEMETRY_OPTOUT = "1"
 DOTNET_NOLOGO = "1"
 # Keep Avalonia's build-time telemetry from writing outside the workspace.
 AVALONIA_TELEMETRY_OPTOUT = "1"
+PD2CLOUD_GITHUB_CLIENT_ID = "Iv23liCSzz1hn3GNFSJl"
 
 [tasks.restore]
 description = "Restore application dependencies"

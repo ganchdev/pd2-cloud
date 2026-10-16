@@ -69,6 +69,26 @@
                         </StackPanel>
                     </Expander>
                 </StackPanel>
+                <Border BorderBrush="Gray" BorderThickness="1" CornerRadius="8" Padding="16">
+                    <StackPanel DataContext="{Binding GitHub}" x:DataType="vm:GitHubConnectionViewModel" Spacing="12">
+                        <TextBlock Text="GitHub connection" FontSize="22" FontWeight="SemiBold" />
+                        <TextBlock Text="{Binding Account}" TextWrapping="Wrap" />
+                        <TextBlock Text="{Binding Notice}" TextWrapping="Wrap" />
+                        <StackPanel IsVisible="{Binding HasCode}" Spacing="8">
+                            <SelectableTextBlock Text="{Binding VerificationAddress}" TextWrapping="Wrap" />
+                            <SelectableTextBlock Text="{Binding UserCode}" FontSize="24" FontWeight="Bold" />
+                        </StackPanel>
+                        <WrapPanel>
+                            <Button Content="Connect to GitHub" Click="Connect_Click" IsEnabled="{Binding CanConnect}" Margin="0,0,8,8" />
+                            <Button Content="Cancel" Click="CancelGitHub_Click" IsVisible="{Binding IsBusy}" Margin="0,0,8,8" />
+                            <Button Content="Reload Repositories" Click="ReloadRepositories_Click" IsEnabled="{Binding CanReload}" Margin="0,0,8,8" />
+                            <Button Content="Disconnect" Click="Disconnect_Click" IsEnabled="{Binding CanManage}" Margin="0,0,8,8" />
+                        </WrapPanel>
+                        <ComboBox ItemsSource="{Binding Repositories}" SelectedItem="{Binding Candidate}" IsEnabled="{Binding CanManage}" PlaceholderText="Choose a private repository" HorizontalAlignment="Stretch" />
+                        <Button Content="Use Repository" Click="ChooseRepository_Click" IsEnabled="{Binding CanSelect}" />
+                        <TextBlock Text="{Binding Selection}" TextWrapping="Wrap" />
+                    </StackPanel>
+                </Border>
             </StackPanel>
         </ScrollViewer>
     </Grid>

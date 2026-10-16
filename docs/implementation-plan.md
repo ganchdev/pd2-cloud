@@ -6,7 +6,7 @@ PD2 Cloud is a generic folder synchronization engine. All regular files within t
 
 ## Current boundaries
 
-Use C#/.NET 10 and Avalonia MVVM. Core holds generic models, pure collection comparison and the scanner boundary, Local implements filesystem inspection, and Desktop composes them with a native picker. Local never depends on GitHub or Desktop. Add GitHub/platform projects only when needed by implemented features. The [inspection specification](folder-inspection.md) defines schema 1, canonical paths, hashing and safety guarantees.
+Use C#/.NET 10 and Avalonia MVVM. Core holds generic models, pure collection comparison and the scanner boundary, Local implements filesystem inspection, and Desktop composes them with a native picker. Local never depends on GitHub or Desktop. GitHub implements authentication and repository metadata without depending on Core/Local; Platform implements native credential storage. Desktop composes independent inspection and connection view models. The [inspection specification](folder-inspection.md) defines schema 1, canonical paths, hashing and safety guarantees.
 
 Task 2 implements local recursive inspection and a simple file dashboard. Inspection has no cloud state and never establishes a baseline. Task 3 persists the selected folder outside the source tree and restores it with a fresh inspection. See the [delivery plan](delivery-plan.md).
 
@@ -22,19 +22,20 @@ Task 2 implements local recursive inspection and a simple file dashboard. Inspec
 | Diagnostics | Collapsed Inspection Details with issues, excluded paths, file sizes/hashes and collection fingerprint |
 | Local preferences | Versioned folder settings, safe replacement, startup inspection, persistent failure notices and application-storage source rejection |
 | Comparison | Pure complete-inventory decision table, missing-file review and typed safety blocks; no desktop integration |
+| GitHub connection | Device flow, serialized refresh, native-only credential storage, private repository metadata selection and disconnect; live acceptance pending |
 | Future baseline boundary | `LocalSyncState` is a supplied comparison input and reserved path only; no baseline persistence or remote behavior |
 
 The former profile registry, format-specific inventory policies, sidecar associations, stash questions/configuration, game-version fields and their tests have been removed. The old metadata-only inspector was also removed; the desktop now uses one generic scanner interface. The read-only fingerprint reader and native folder picker were reused.
 
 Verification on macOS passed: 29 test cases, formatting, and a Release build with zero warnings/errors. The real window was rendered and visually inspected through a temporary native harness with a test picker. Hosted CI results were not available during local verification of this refactor. CI is configured for Windows, macOS and Linux; native picker and Windows/Linux acceptance remain open.
 
-Tasks 2–4 are implemented. Task 5 (GitHub connection) is next. Task-3 validation passed 45 tests, formatting and a Release build with zero warnings/errors; standard mise build/test commands now work with Avalonia’s supported telemetry opt-out configured in `mise.toml`. Restored/error UI states were rendered and visually inspected in the real window through a temporary native harness. Authentication, GitHub reads, backups, recovery and transfers remain future work. Task-4 verification passed 97 tests, standard Release build (zero warnings/errors) and formatting on macOS; no UI changes were necessary. Folder preference persistence is separate from successful-sync state. See the inspection specification for restart verification and settings limitations. The refactor does not require game fixtures or gameplay validation.
+Tasks 2–5 are implemented; task 5 has a public client ID configured and requires live registration/authentication/repository acceptance and remaining native platform checks. Task 6 (verified cloud reads) is next only with separate direction. Task-4 verification passed 97 tests, standard Release build and formatting on macOS. Task-5 verification passed 127 tests (30 new), a standard Release build with zero warnings/errors and formatting on macOS. Task-5 contract, setup and acceptance are in [GitHub connection](github-connection.md). Folder settings remain separate from successful-sync state and credentials. No transfers, backups/recovery or baseline persistence exist.
 
 ## Comparison and future synchronization
 
-Task 4 implements only step 4 and its advisory decisions below, through `CollectionComparer.Compare` in Core. See the [comparison contract](collection-comparison.md) for API inputs, validation precedence and limitations. It accepts an optional supplied successful baseline; it never creates, loads, saves or advances one. Callers must supply verified pinned remote state and baseline history evidence. The current desktop still performs local inspection only.
+Task 4 implements only step 4 and its advisory decisions below, through `CollectionComparer.Compare` in Core. See the [comparison contract](collection-comparison.md) for API inputs, validation precedence and limitations. It accepts an optional supplied successful baseline; it never creates, loads, saves or advances one. Callers must supply verified pinned remote state and baseline history evidence. The desktop supports local inspection and separate GitHub connection; it does not invoke comparison or cloud inventory reads.
 
-Startup and Refresh inspect only. An explicit Sync All action is the only transfer trigger; there is no automatic background sync. The future flow is:
+Local startup and Refresh inspect only; separate connection startup restores credentials and reads account/repository metadata. An explicit Sync All action is the only transfer trigger; there is no automatic background sync. The future flow is:
 
 1. Inspect/capture the local folder and create a deterministic manifest.
 2. Read the last successfully synchronized device baseline.
@@ -59,13 +60,13 @@ Different-file edits on different devices still conflict at collection level. Eq
 
 Choosing a complete side may remove active files absent from that side. The recoverable archival/removal policy still needs an explicit product decision before enabling that workflow; block it until decided. Preserve both complete snapshots before resolution. Never merge automatically or force a remote branch update.
 
-## Future remote storage and authentication
+## GitHub connection and future remote storage
 
 Keep HTTPS REST access independent of directory scanning; no Git CLI requirement or hosted backend. Use a private repository and an explicitly owned namespace containing a versioned manifest and an opaque recursive files subtree. Preserve unrelated repository entries. Validate repository identity, privacy, branch and write access on each operation. Never treat a missing branch as an empty collection.
 
 Read metadata, trees and blobs from one pinned commit. Validate manifest/tree consistency, canonical paths, hashes, size/count limits and nontruncated tree responses before accepting a remote inventory. Bound resource usage and preserve original bytes. Remote path serialization follows the same portable canonical rules as local inspection.
 
-Register a GitHub App for device flow, Contents read/write and Metadata read. Ship the public client ID, never an app secret/private key. Handle device polling, cancellation, expiry, slowdown and serialized token refresh. Store secrets in native Windows/macOS/Linux credential facilities without plaintext fallback. Disconnect removes local account credentials; remote revocation is a separate GitHub action. Real app registration and platform credential validation remain external prerequisites.
+Task 5 implements GitHub App device polling, cancellation, expiry, slowdown and serialized device-token refresh without a client secret. Native Keychain/Credential Manager/Secret Service adapters have no plaintext fallback. Private repository selection persists ID/name/advertised default branch inside the native credential envelope after fresh permission/privacy checks. Disconnect deletes local credentials/selection; remote revocation is separate. Configuration uses the public `PD2CLOUD_GITHUB_CLIENT_ID`; the user-supplied public ID is configured in tracked `mise.toml` for development runs; live registration/installation/authentication acceptance remains unverified. Never ship an app secret/private key. See [GitHub connection](github-connection.md) for platform requirements, tested boundaries and external acceptance gates. The macOS adapter passed a disposable round trip; signed desktop/denied/locked-store and Windows/Linux checks remain open. This task does not verify branch contents, read inventories or write repository contents. Future operations must revalidate all access/identity/branch assumptions.
 
 Initialize repository contents only during explicit synchronization, with confirmation before adopting an unrelated populated repository. Empty-repository bootstrap is not a completed save upload. Upload immutable captured bytes, create a commit parented on the observed head and publish with `force: false`. A competing update requires refreshing and replanning, not reparenting blindly. Record candidate commits before publication; after lost responses inspect whether publication succeeded before retrying.
 

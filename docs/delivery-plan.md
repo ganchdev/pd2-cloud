@@ -11,9 +11,10 @@ Revised 2026-10-15 for generic folder synchronization. Earlier game-format inven
 | 2. Generic recursive discovery | Implemented | Native Windows/Linux checks and large-folder performance remain unverified |
 | 3. Persistent local dashboard | Implemented | Native Windows/Linux acceptance; see limitations below |
 | 4. Collection comparison | Implemented | Pure Core API only; remote verification and transfer gates remain future work |
-| 5–11. Cloud, recovery and distribution | Not started | See subsequent chunks below |
+| 5. GitHub connection | Implemented; live acceptance pending | Verify configured app registration, live device/token/repository checks and remaining native platform gates |
+| 6–11. Cloud reads, recovery and distribution | Not started | See subsequent chunks below |
 
-The next planned implementation task is **task 5**. Native acceptance can be completed separately; obsolete game-profile evidence does not block further generic-folder work.
+The next planned implementation task is **task 6**, only with separate direction. Task 5 live acceptance gates are tracked in [GitHub connection](github-connection.md). Native acceptance can be completed separately; obsolete game-profile evidence does not block further generic-folder work.
 
 ## Current tasks
 
@@ -57,11 +58,17 @@ Core now compares complete inventories without filesystem or GitHub access. It r
 
 **Verification (2026-10-15):** 97 tests passed on macOS (52 added comparison cases); standard `mise run test`, `mise run build` and `mise run format:check` passed, with zero build warnings/errors. No UI changes were needed. Comparison results are advisory only: no remote verifier, transfer, conflict-resolution UI, deletion policy or baseline persistence exists. No hosted CI or Windows/Linux results are claimed.
 
+### 5. GitHub connection — implemented; live acceptance pending
+
+Added independent GitHub/platform projects and a connection panel. Device flow handles cancellation, expiry, denial and cumulative slowdown. Token rotation and native credential mutations are serialized; private repository/default-branch metadata is revalidated before secure persistence. Disconnect removes local credentials/selection without network access. Native storage has no plaintext fallback. Local Refresh remains inspection only; onboarding/startup/repository reload do not read or write repository contents, create a baseline or synchronize.
+
+The user supplied the public `PD2CLOUD_GITHUB_CLIENT_ID` in tracked `mise.toml` after initial implementation. Verify its app registration enables device flow, Contents read/write and Metadata read and install it on a disposable private repository. See [setup, implementation contract and precise acceptance gates](github-connection.md). Standard `mise run test` passed 127 cases (30 new), `mise run build` passed with zero warnings/errors and `mise run format:check` passed on macOS. Live registration/authorization/rotation/repository checks, Windows/Linux native storage and signed-desktop native UI/credential acceptance remain open. A disposable production-adapter Keychain round trip passed on this Mac; actual MainWindow connection states were rendered and inspected with scripted responses, including minimum size. This does not establish live authentication or native Windows/Linux behavior.
+
 ## Subsequent chunks
 
 | Chunk | Deliverable and gate |
 |---|---|
-| 5. GitHub connection | Device flow, native secure storage, private repository selection/disconnect; registered app and native tests required |
+| 5. GitHub connection | Implemented; registered app/live checks and remaining native acceptance required (see above) |
 | 6. Cloud reads | Verified pinned manifests/trees/blobs, offline/error states; no repository writes during onboarding or Refresh |
 | 7. Backups and recovery | Immutable capture, verified backups, durable journals and serialized operations; interruption tests before enabling source writes |
 | 8. First safe upload | Explicit Sync All, private-repo checks, managed namespace, unrelated-content preservation and non-forced publication |
