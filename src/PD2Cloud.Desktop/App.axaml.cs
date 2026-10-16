@@ -24,7 +24,7 @@ public partial class App : Application
             var window = new MainWindow();
             var clientId = Environment.GetEnvironmentVariable("PD2CLOUD_GITHUB_CLIENT_ID") ?? "";
             var github = new GitHubConnectionViewModel(new GitHubConnection(new GitHubApi(GitHubApi.CreateHttpClient(), clientId), new NativeCredentialStore(clientId)));
-            window.DataContext = new MainWindowViewModel(new CollectionScanner(), new NativeFolderPicker(window.StorageProvider), new FolderSettingsStore(), github);
+            window.DataContext = new SetupWorkflowViewModel(new MainWindowViewModel(new CollectionScanner(), new NativeFolderPicker(window.StorageProvider), new FolderSettingsStore(), github));
             desktop.MainWindow = window;
         }
 

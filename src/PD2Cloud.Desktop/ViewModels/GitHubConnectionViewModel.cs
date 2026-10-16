@@ -9,12 +9,21 @@ public sealed class GitHubConnectionViewModel(GitHubConnection connection) : INo
     private bool disposed;
     private bool initialized;
     public event PropertyChangedEventHandler? PropertyChanged;
+    public bool IsConfigured => connection.IsConfigured;
+    public bool IsConnected { get; private set; }
+    public bool LastOperationSucceeded { get; private set; }
+    public RepositoryChoice? SelectedRepository { get; private set; }
+    public DateTimeOffset? LastChecked { get; private set; }
+    public string ConnectionStatus => IsConnected ? "Connected" : "GitHub Not Connected";
+    public string LastCheck => LastChecked is { } time ? $"Last successful check {time.ToLocalTime():g}" : "No successful connection check yet.";
+    public bool HasRepositories => Repositories.Count > 0;
+    public bool ShowEmptyRepositories => !IsBusy && IsConnected && !HasRepositories;
     public bool IsBusy => operation is not null;
     public bool CanConnect => !disposed && !IsBusy && connection.IsConfigured;
     public bool CanManage => !disposed && !IsBusy;
     public bool CanReload => CanManage && connection.IsConfigured;
     public bool CanSelect => CanManage && Candidate is not null;
-    public string Notice { get; private set; } = connection.IsConfigured ? "Connect to choose a private GitHub repository." : "GitHub App client ID is not configured. Set PD2CLOUD_GITHUB_CLIENT_ID and restart. Local inspection is available.";
+    public string Notice { get; private set; } = connection.IsConfigured ? "Connect to choose a private GitHub repository." : "GitHub connection is not configured in this build. Follow the project setup guide and restart. You can still inspect local saves.";
     public string Account { get; private set; } = "";
     public string Selection { get; private set; } = "No repository selected.";
     public string UserCode { get; private set; } = "";
@@ -37,13 +46,14 @@ public sealed class GitHubConnectionViewModel(GitHubConnection connection) : INo
 
     public Task ConnectAsync() => !CanConnect ? Task.CompletedTask : RunAsync(async ct =>
     {
+        IsConnected = false; SelectedRepository = null;
         Account = ""; Selection = "No repository selected."; Repositories = []; Candidate = null;
         var progress = new Progress<DeviceAuthorization>(device =>
         {
             if (disposed || ct.IsCancellationRequested || operation?.Token != ct) return;
             UserCode = device.UserCode;
             VerificationAddress = device.VerificationUri.AbsoluteUri;
-            Notice = $"Open the GitHub address below and enter this code. Expires {device.ExpiresAt.ToLocalTime():t}.";
+            Notice = $"Waiting for GitHub authorization… Code expires at {device.ExpiresAt.ToLocalTime():t}.";
             Notify();
         });
         await connection.ConnectAsync(device => ((IProgress<DeviceAuthorization>)progress).Report(device), ct);
@@ -53,15 +63,20 @@ public sealed class GitHubConnectionViewModel(GitHubConnection connection) : INo
     public Task ReloadAsync() => !CanReload ? Task.CompletedTask : RunAsync(LoadAsync);
     private async Task LoadAsync(CancellationToken ct)
     {
+        IsConnected = false; SelectedRepository = null;
         Account = ""; Repositories = []; Candidate = null; Selection = "No verified repository selected.";
         var overview = await connection.LoadAsync(ct);
         if (disposed || ct.IsCancellationRequested) return;
-        Account = overview is null ? "" : $"Connected as {overview.Account}";
+        IsConnected = overview is not null;
+        LastChecked = overview is null ? LastChecked : DateTimeOffset.Now;
+        Account = overview?.Account ?? "";
+        SelectedRepository = overview?.Selected;
         Repositories = overview?.Repositories ?? [];
-        Selection = overview?.Selected is { } selected ? $"Selected: {selected.FullName} • {selected.DefaultBranch}" : "No repository selected.";
+        Selection = overview?.Selected is { } selected ? $"{selected.FullName}" : "No repository selected.";
         Candidate = overview?.Selected;
-        Notice = overview is null ? "Connect to GitHub to continue." : Repositories.Count == 0
-            ? "No eligible private repositories. Install the GitHub App on a private repository with Contents read/write access, then Reload Repositories."
+        Notice = overview is null ? "Connect to GitHub to continue." : overview.SelectionUnavailable
+            ? "Your previous repository is no longer available with its saved settings. Check GitHub access, then choose a repository again." : Repositories.Count == 0
+            ? "No available private repositories. Create a private repository or manage GitHub access to allow PD2 Cloud to use an existing one, then refresh."
             : "Choose a private repository. Connection does not synchronize files.";
     }
 
@@ -71,10 +86,12 @@ public sealed class GitHubConnectionViewModel(GitHubConnection connection) : INo
         if (selected is null) return Task.CompletedTask;
         return RunAsync(async ct =>
         {
+            SelectedRepository = null;
             Selection = "No verified repository selected.";
             var result = await connection.SelectAsync(selected.Id, ct);
             if (disposed || ct.IsCancellationRequested) return;
-            Selection = $"Selected: {result.FullName} • {result.DefaultBranch}";
+            SelectedRepository = result;
+            Selection = $"{result.FullName}";
             Notice = "Repository selection saved securely. No repository contents were written.";
         });
     }
@@ -83,6 +100,7 @@ public sealed class GitHubConnectionViewModel(GitHubConnection connection) : INo
     {
         await connection.DisconnectAsync(ct);
         if (disposed) return;
+        IsConnected = false; SelectedRepository = null;
         Account = ""; Selection = "No repository selected."; Repositories = []; Candidate = null;
         Notice = "Disconnected. Local credentials removed. Revoke app authorization separately in GitHub settings if desired.";
     });
@@ -92,18 +110,19 @@ public sealed class GitHubConnectionViewModel(GitHubConnection connection) : INo
     {
         if (disposed || IsBusy) return;
         using var current = new CancellationTokenSource();
+        LastOperationSucceeded = false;
         operation = current; UserCode = ""; VerificationAddress = ""; Notice = "Contacting GitHub…"; Notify();
-        try { await action(current.Token); }
+        try { await action(current.Token); LastOperationSucceeded = !current.IsCancellationRequested; }
         catch (OperationCanceledException) when (current.IsCancellationRequested)
         {
-            if (!disposed) Notice = "GitHub operation cancelled. Reload to verify saved connection state.";
+            if (!disposed) Notice = "GitHub operation cancelled. Try again when you’re ready.";
         }
         catch (ConnectionException ex) { if (!disposed) Notice = ex.Message; }
         catch (Exception)
         {
             if (!disposed)
             {
-                Notice = "GitHub connection or native secure storage is unavailable. Check connectivity and the native credential facility, then retry. No plaintext fallback is used.";
+                Notice = "GitHub or secure account storage is unavailable. Check your internet connection and unlock your account’s secure storage, then retry.";
             }
         }
         finally

@@ -21,6 +21,32 @@ public sealed class MainWindowViewModel(ICollectionScanner scanner, IFolderPicke
     private InspectionState state;
     private CollectionManifest? manifest;
 
+    public bool SetupStarted { get; private set; }
+    public async Task StartSetupAsync()
+    {
+        SetupStarted = true;
+        try { if (settings is not null) await settings.SaveSetupStartedAsync(); }
+        catch (Exception) { settingsNotice = "Could not save setup progress. You can continue for this session."; }
+        Notify();
+    }
+    public bool SetupCompleted { get; private set; }
+    public async Task CompleteSetupAsync()
+    {
+        if (manifest?.IsValid != true) return;
+        try
+        {
+            if (settings is not null)
+            {
+                await settings.SaveFolderAsync(selectedPath!);
+                await settings.SaveSetupCompletedAsync();
+            }
+            settingsNotice = "";
+            SetupCompleted = true;
+        }
+        catch (Exception) { settingsNotice = "Could not save setup progress. Please retry Continue."; }
+        Notify();
+    }
+
     public GitHubConnectionViewModel? GitHub { get; } = github;
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -64,6 +90,8 @@ public sealed class MainWindowViewModel(ICollectionScanner scanner, IFolderPicke
         {
             var restored = await settings.LoadAsync();
             if (disposed) return;
+            SetupStarted = restored.SetupStarted;
+            SetupCompleted = restored.SetupCompleted;
             settingsNotice = restored.Notice;
             selectedPath = restored.SelectedFolder;
             initializing = false;

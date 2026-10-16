@@ -36,7 +36,7 @@ public sealed class GitHubConnection(GitHubApi api, ICredentialStore store, Time
             var repositories = await api.RepositoriesAsync(credentials.AccessToken, ct).ConfigureAwait(false);
             // Stored selection is only displayed as valid after fresh metadata validation.
             var selected = repositories.SingleOrDefault(r => r.Id == credentials.Repository?.Id && r.FullName == credentials.Repository.FullName && r.DefaultBranch == credentials.Repository.DefaultBranch);
-            return new(account, repositories, selected);
+            return new(account, repositories, selected, credentials.Repository is not null && selected is null);
         }
         finally { gate.Release(); }
     }
@@ -89,4 +89,4 @@ public sealed class GitHubConnection(GitHubApi api, ICredentialStore store, Time
     private Task SaveAsync(ConnectionCredentials credentials, CancellationToken ct) => store.WriteAsync(JsonSerializer.Serialize(credentials), ct);
 }
 
-public sealed record ConnectionOverview(string Account, IReadOnlyList<RepositoryChoice> Repositories, RepositoryChoice? Selected);
+public sealed record ConnectionOverview(string Account, IReadOnlyList<RepositoryChoice> Repositories, RepositoryChoice? Selected, bool SelectionUnavailable = false);

@@ -10,6 +10,8 @@ public interface ICredentialStore
 
 public sealed record RepositoryChoice(long Id, string FullName, string DefaultBranch)
 {
+    public string Owner => FullName.Split('/')[0];
+    public string Name => FullName.Split('/').Last();
     public override string ToString() => FullName;
 }
 

@@ -25,8 +25,8 @@ public sealed class FolderSettingsStore(string? applicationDirectory = null) : I
                     var document = Read();
                     var folder = document["SelectedFolder"]?.GetValue<string>();
                     if (folder is not null && (!Path.IsPathFullyQualified(folder) || !ApplicationDataPaths.IsSourceAllowed(folder, directory)))
-                        return new FolderSettingsResult(null, "Saved folder is unsafe or invalid. Choose another folder.");
-                    return new FolderSettingsResult(folder);
+                        return new FolderSettingsResult(null, "Saved folder is unsafe or invalid. Choose another folder.", document["SetupCompleted"]?.GetValue<bool>() ?? false);
+                    return new FolderSettingsResult(folder, SetupCompleted: document["SetupCompleted"]?.GetValue<bool>() ?? false, SetupStarted: document["SetupStarted"]?.GetValue<bool>() ?? false);
                 }
                 catch (Exception ex) when (IsSettingsError(ex))
                 {
@@ -41,6 +41,15 @@ public sealed class FolderSettingsStore(string? applicationDirectory = null) : I
     {
         if (!Path.IsPathFullyQualified(path) || !ApplicationDataPaths.IsSourceAllowed(path, directory))
             throw new ArgumentException("Source overlaps application data.", nameof(path));
+        await UpdateAsync(document => document["SelectedFolder"] = Path.GetFullPath(path));
+    }
+
+    public Task SaveSetupStartedAsync() => UpdateAsync(document => document["SetupStarted"] = true);
+
+    public Task SaveSetupCompletedAsync() => UpdateAsync(document => document["SetupCompleted"] = true);
+
+    private async Task UpdateAsync(Action<JsonObject> update)
+    {
         await gate.WaitAsync();
         try
         {
@@ -48,7 +57,7 @@ public sealed class FolderSettingsStore(string? applicationDirectory = null) : I
             {
                 var document = Read();
                 document["SchemaVersion"] = 1;
-                document["SelectedFolder"] = Path.GetFullPath(path);
+                update(document);
                 Directory.CreateDirectory(directory);
                 CheckStoragePath();
                 var temporary = Path.Combine(directory, $"settings-{Guid.NewGuid():N}.tmp");
@@ -81,6 +90,8 @@ public sealed class FolderSettingsStore(string? applicationDirectory = null) : I
         var version = document["SchemaVersion"]?.GetValue<int>() ?? 0;
         if (version is < 0 or > 1) throw new JsonException("Unsupported settings version.");
         _ = document["SelectedFolder"]?.GetValue<string>();
+        _ = document["SetupCompleted"]?.GetValue<bool>();
+        _ = document["SetupStarted"]?.GetValue<bool>();
         return document;
     }
 

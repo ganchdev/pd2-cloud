@@ -266,7 +266,7 @@ public sealed class GitHubConnectionTests
         var handler = new Handler(); var store = new Store { Value = "{" };
         var api = new GitHubApi(new HttpClient(handler), "");
         using var vm = new GitHubConnectionViewModel(new(api, store));
-        Assert.False(vm.CanConnect); Assert.False(vm.CanReload); await vm.InitializeAsync(); await vm.ConnectAsync(); await vm.ReloadAsync(); Assert.Contains("client ID", vm.Notice);
+        Assert.False(vm.CanConnect); Assert.False(vm.CanReload); await vm.InitializeAsync(); await vm.ConnectAsync(); await vm.ReloadAsync(); Assert.Contains("not configured", vm.Notice);
         await Assert.ThrowsAsync<ConnectionException>(() => Connection(handler, store).LoadAsync(default));
         Assert.Equal("{", store.Value); Assert.Empty(handler.Requests);
     }

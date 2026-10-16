@@ -64,6 +64,10 @@ Added independent GitHub/platform projects and a connection panel. Device flow h
 
 Development runs load `PD2CLOUD_GITHUB_CLIENT_ID` from optional ignored `.local.env`; `.local.env.example` supplies an empty template and tracked configuration contains no personal Client ID. The existing local value was preserved when moved out of `mise.toml`. Verify its app registration enables device flow, Contents read/write and Metadata read and install it on a disposable private repository. See [setup, implementation contract and precise acceptance gates](github-connection.md). Standard `mise run test` passed 127 cases (30 new), `mise run build` passed with zero warnings/errors and `mise run format:check` passed on macOS. Live registration/authorization/rotation/repository checks, Windows/Linux native storage and signed-desktop native UI/credential acceptance remain open. A disposable production-adapter Keychain round trip passed on this Mac; actual MainWindow connection states were rendered and inspected with scripted responses, including minimum size. This does not establish live authentication or native Windows/Linux behavior.
 
+## GitHub setup UX follow-up (2026-10-16)
+
+Shared onboarding and Settings screens replace the single connection panel. Added native browser/clipboard actions, repository creation/access guidance, confirmation before disconnect, persisted setup start/completion and dashboard routing. See the [UX contract](github-setup-ux.md) for exact behavior, validation and remaining boundaries. This does not implement task 6 or transfers. Dashboard Refresh checks local files and account/repository metadata only.
+
 ## Subsequent chunks
 
 | Chunk | Deliverable and gate |

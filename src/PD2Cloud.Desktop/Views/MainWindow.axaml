@@ -2,93 +2,251 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:PD2Cloud.Desktop.ViewModels"
         xmlns:core="using:PD2Cloud.Core"
-        x:Class="PD2Cloud.Desktop.Views.MainWindow" x:DataType="vm:MainWindowViewModel"
-        Title="PD2 Cloud" Width="760" Height="680" MinWidth="520" MinHeight="440"
-        WindowStartupLocation="CenterScreen">
-    <Grid Margin="24" RowDefinitions="Auto,*" RowSpacing="24">
-        <TextBlock Text="PD2 Cloud" FontSize="22" FontWeight="SemiBold" />
-        <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled">
-            <StackPanel Spacing="20">
-                <StackPanel IsVisible="{Binding IsInitial}" Spacing="16" Margin="0,12,0,20">
-                    <TextBlock Text="Find your saves" FontSize="30" FontWeight="SemiBold" TextWrapping="Wrap" />
-                    <TextBlock Text="Select the folder where Project Diablo 2 stores your single-player saves." TextWrapping="Wrap" FontSize="15" />
-                    <Button Content="Select Folder" Click="SelectFolder_Click" IsEnabled="{Binding CanSelect}"
-                            FontSize="16" Padding="24,14" HorizontalAlignment="Left" />
+        xmlns:github="using:PD2Cloud.GitHub"
+        x:Class="PD2Cloud.Desktop.Views.MainWindow" x:DataType="vm:SetupWorkflowViewModel"
+        Title="PD2 Cloud" Width="880" Height="760" MinWidth="560" MinHeight="480"
+        WindowStartupLocation="CenterScreen" Background="#14181F">
+    <Window.Styles>
+        <Style Selector="TextBlock"><Setter Property="TextWrapping" Value="Wrap" /></Style>
+        <Style Selector="TextBlock.title"><Setter Property="FontSize" Value="30" /><Setter Property="FontWeight" Value="SemiBold" /></Style>
+        <Style Selector="TextBlock.muted"><Setter Property="Foreground" Value="#ABB6C5" /></Style>
+        <Style Selector="Button"><Setter Property="Padding" Value="16,11" /><Setter Property="CornerRadius" Value="6" /></Style>
+        <Style Selector="ToggleButton.navigation"><Setter Property="Padding" Value="16,11" /><Setter Property="CornerRadius" Value="6" /></Style>
+        <Style Selector="ToggleButton.navigation:checked"><Setter Property="Background" Value="#4279D4" /><Setter Property="Foreground" Value="White" /></Style>
+        <Style Selector="Button.primary"><Setter Property="Background" Value="#4279D4" /><Setter Property="Foreground" Value="White" /></Style>
+        <Style Selector="Border.card"><Setter Property="Background" Value="#1E2530" /><Setter Property="CornerRadius" Value="10" /><Setter Property="Padding" Value="22" /></Style>
+    </Window.Styles>
+    <Grid RowDefinitions="Auto,*">
+        <Border BorderBrush="#303947" BorderThickness="0,0,0,1" Padding="28,18">
+            <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Text="PD2 Cloud" FontSize="21" FontWeight="SemiBold" VerticalAlignment="Center" />
+                <Button Grid.Column="1" Content="Settings" Click="Settings_Click" IsVisible="{Binding IsDashboard}" />
+                <Button Grid.Column="1" Content="Back to Saves" Click="Dashboard_Click" IsVisible="{Binding IsSettings}" />
+            </Grid>
+        </Border>
+        <ScrollViewer x:Name="PageScroll" Grid.Row="1" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Margin="32" Spacing="22" MaxWidth="760" HorizontalAlignment="Stretch">
+                <StackPanel IsVisible="{Binding IsLoading}" Spacing="16">
+                    <TextBlock Text="Opening your collection…" Classes="title" />
+                    <ProgressBar IsIndeterminate="True" Height="3" />
                 </StackPanel>
-                <TextBlock Text="{Binding SettingsNotice}" TextWrapping="Wrap" IsVisible="{Binding HasSettingsNotice}" />
-                <TextBlock Text="{Binding PickerNotice}" TextWrapping="Wrap" IsVisible="{Binding HasPickerNotice}" />
-                <StackPanel IsVisible="{Binding HasFolder}" Spacing="16">
-                    <TextBlock Text="Your files" FontSize="26" FontWeight="SemiBold" />
-                    <SelectableTextBlock Text="{Binding SelectedPath}" TextWrapping="Wrap" Opacity="0.7" />
-                    <StackPanel Orientation="Horizontal" Spacing="12">
-                        <Button Content="Refresh" Click="Refresh_Click" IsEnabled="{Binding CanRefresh}" />
-                        <Button Content="Change Folder" Click="SelectFolder_Click" IsEnabled="{Binding CanSelect}" />
+                <StackPanel IsVisible="{Binding IsWelcome}" Spacing="24" Margin="0,44,0,0">
+                    <TextBlock Text="Your saves. Every device." Classes="title" FontSize="36" />
+                    <TextBlock Text="Keep your Project Diablo 2 saves in sync across your devices." FontSize="19" />
+                    <Border Classes="card">
+                        <StackPanel Spacing="12">
+                            <TextBlock Text="Your own private save collection" FontSize="19" FontWeight="SemiBold" />
+                            <TextBlock Text="PD2 Cloud uses a private GitHub repository to securely store your saves. Connect your account, choose a repository, and select your local save folder." Classes="muted" />
+                            <TextBlock Text="Synchronization is coming next. Setup keeps your files untouched." Classes="muted" />
+                        </StackPanel>
+                    </Border>
+                    <Button Content="Get Started" Classes="primary" Click="GetStarted_Click" />
+                </StackPanel>
+                <StackPanel IsVisible="{Binding IsConnect}" Spacing="22">
+                    <TextBlock Text="Connect to GitHub" Classes="title" />
+                    <TextBlock Text="Link your GitHub account to store and sync your PD2 saves in a private repository." FontSize="16" />
+                    <Border Classes="card">
+                        <StackPanel Spacing="14">
+                            <TextBlock Text="Keep your saves available across devices." />
+                            <TextBlock Text="Store your saves in your own private repository." />
+                            <TextBlock Text="Maintain a history of previous save versions." />
+                            <TextBlock Text="Stay in control of your data." />
+                            <TextBlock Text="These features will become available with synchronization. Connecting alone does not transfer files." Classes="muted" />
+                        </StackPanel>
+                    </Border>
+                    <TextBlock Text="{Binding GitHub.Notice}" Classes="muted" />
+                    <WrapPanel>
+                        <Button Content="Connect with GitHub" Classes="primary" Click="Connect_Click" IsEnabled="{Binding GitHub.CanConnect}" Margin="0,0,12,12" />
+                        <Button Content="Back" Click="Back_Click" Margin="0,0,12,12" />
+                        <Button Content="Inspect Local Saves" Click="Dashboard_Click" IsVisible="{Binding CanUseLocalOnly}" Margin="0,0,12,12" />
+                    </WrapPanel>
+                </StackPanel>
+                <StackPanel IsVisible="{Binding IsAuthorize}" Spacing="20">
+                    <TextBlock Text="Authorize PD2 Cloud" Classes="title" />
+                    <TextBlock Text="Complete authorization in your browser to connect your GitHub account." />
+                    <Border Classes="card" IsVisible="{Binding GitHub.HasCode}">
+                        <StackPanel Spacing="18">
+                            <TextBlock Text="Enter this temporary code on GitHub" Classes="muted" />
+                            <SelectableTextBlock Text="{Binding GitHub.UserCode}" FontSize="32" FontWeight="SemiBold" />
+                            <WrapPanel>
+                                <Button Content="Copy Code" Click="CopyCode_Click" Margin="0,0,12,12" />
+                                <Button Content="Open GitHub" Classes="primary" Click="OpenAuthorization_Click" Margin="0,0,12,12" />
+                            </WrapPanel>
+                            <SelectableTextBlock Text="{Binding GitHub.VerificationAddress}" TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
+                    <ProgressBar IsIndeterminate="True" Height="3" IsVisible="{Binding GitHub.IsBusy}" />
+                    <TextBlock Text="{Binding GitHub.Notice}" />
+                    <WrapPanel>
+                        <Button Content="Retry" Classes="primary" Click="Connect_Click" IsVisible="{Binding ShowAuthorizationRetry}" IsEnabled="{Binding GitHub.CanConnect}" Margin="0,0,12,12" />
+                        <Button Content="Cancel" Click="Back_Click" Margin="0,0,12,12" />
+                    </WrapPanel>
+                </StackPanel>
+                <StackPanel IsVisible="{Binding IsRepository}" Spacing="20">
+                    <TextBlock Text="Select Repository" Classes="title" />
+                    <TextBlock Text="Choose a private GitHub repository to store your PD2 saves." />
+                    <TextBlock Text="GitHub Connected" FontWeight="SemiBold" IsVisible="{Binding GitHub.IsConnected}" />
+                    <TextBlock Text="{Binding GitHub.Account}" Classes="muted" />
+                    <ProgressBar IsIndeterminate="True" Height="3" IsVisible="{Binding GitHub.IsBusy}" />
+                    <TextBlock Text="{Binding GitHub.Notice}" />
+                    <Border Classes="card" IsVisible="{Binding GitHub.ShowEmptyRepositories}">
+                        <StackPanel Spacing="12">
+                            <TextBlock Text="No available repositories" FontSize="21" FontWeight="SemiBold" />
+                            <TextBlock Text="Already have a private repository? Use Manage GitHub Access to allow PD2 Cloud to use it. Otherwise, create one on GitHub, then return here and refresh." />
+                            <Button Content="Create Repository on GitHub" Classes="primary" Click="CreateRepository_Click" />
+                        </StackPanel>
+                    </Border>
+                    <ListBox ItemsSource="{Binding GitHub.Repositories}" SelectedItem="{Binding GitHub.Candidate}" IsVisible="{Binding GitHub.HasRepositories}" IsEnabled="{Binding GitHub.CanManage}" MaxHeight="280" SelectionMode="Single">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="github:RepositoryChoice">
+                                <StackPanel Margin="10" Spacing="5">
+                                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="17" />
+                                    <StackPanel Orientation="Horizontal" Spacing="16">
+                                        <TextBlock Text="{Binding Owner}" Classes="muted" />
+                                        <TextBlock Text="Private" Foreground="#8CCBAF" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                    <Expander Header="Need help granting access?" HorizontalAlignment="Stretch">
+                        <TextBlock Text="On GitHub, configure PD2 Cloud and select your repository. If PD2 Cloud is not listed, ask the app owner for its installation link. For a repository owned by an organization, its owner may need to approve access. Return here and refresh when you’re done. When creating a repository, choose Private." Margin="0,10" />
+                    </Expander>
+                    <TextBlock Text="{Binding RepositorySafety}" Classes="muted" />
+                    <WrapPanel>
+                        <Button Content="Continue" Classes="primary" Click="ChooseRepository_Click" IsVisible="{Binding GitHub.HasRepositories}" IsEnabled="{Binding GitHub.CanSelect}" Margin="0,0,12,12" />
+                        <Button Content="Back" Click="Back_Click" Margin="0,0,12,12" />
+                    </WrapPanel>
+                    <WrapPanel>
+                        <Button Content="Create Private Repository" Click="CreateRepository_Click" IsVisible="{Binding GitHub.HasRepositories}" Margin="0,0,12,12" />
+                        <Button Content="Refresh Repositories" Click="ReloadRepositories_Click" IsEnabled="{Binding GitHub.CanReload}" Margin="0,0,12,12" />
+                        <Button Content="Manage GitHub Access" Click="ManageAccess_Click" Margin="0,0,12,12" />
+                        <Button Content="Reconnect" Click="Reconnect_Click" IsEnabled="{Binding GitHub.CanManage}" IsVisible="{Binding ShowDisconnected}" Margin="0,0,12,12" />
+                    </WrapPanel>
+                </StackPanel>
+                <StackPanel IsVisible="{Binding IsDashboard}" Spacing="18">
+                    <TextBlock Text="Your Saves" Classes="title" />
+                    <TextBlock Text="{Binding DashboardConnectionStatus}" FontWeight="SemiBold" />
+                    <Border Classes="card">
+                        <StackPanel Spacing="10">
+                            <TextBlock Text="Repository" Classes="muted" />
+                            <TextBlock Text="{Binding RepositoryName}" />
+                            <TextBlock Text="{Binding SyncStatus}" FontSize="20" FontWeight="SemiBold" />
+                            <TextBlock Text="Your saves stay untouched until you choose to sync. Sync All is not available yet." Classes="muted" />
+                        </StackPanel>
+                    </Border>
+                    <WrapPanel>
+                        <Button Content="Sync All" Classes="primary" IsEnabled="False" Margin="0,0,12,12" ToolTip.Tip="Synchronization is not available yet." />
+                        <Button Content="Refresh" Click="Refresh_Click" Margin="0,0,12,12" />
+                    </WrapPanel>
+                    <TextBlock Text="Refresh checks local files and your connection. Cloud file checks are coming later." Classes="muted" />
+                    <TextBlock Text="{Binding GitHub.Notice}" IsVisible="{Binding ShowGitHubNotice}" />
+                </StackPanel>
+                <StackPanel IsVisible="{Binding IsSettings}" Spacing="20">
+                    <TextBlock Text="Settings" Classes="title" />
+                    <WrapPanel>
+                        <ToggleButton Classes="navigation" Content="General" Click="GeneralSettings_Click" IsChecked="{Binding IsGeneralSettings, Mode=OneWay}" Margin="0,0,20,12" />
+                        <ToggleButton Classes="navigation" Content="GitHub" Click="Settings_Click" IsChecked="{Binding IsGitHubSettings, Mode=OneWay}" Margin="0,0,20,12" />
+                        <ToggleButton Classes="navigation" Content="Saves" Click="SavesSettings_Click" IsChecked="{Binding IsSavesSettings, Mode=OneWay}" Margin="0,0,20,12" />
+                    </WrapPanel>
+                    <StackPanel IsVisible="{Binding IsGeneralSettings}" Spacing="12">
+                        <TextBlock Text="General" FontSize="24" FontWeight="SemiBold" />
+                        <TextBlock Text="PD2 Cloud keeps your save folder and account preferences on this device. Saves are never transferred automatically." />
                     </StackPanel>
-                    <TextBlock Text="{Binding StateLabel}" FontWeight="SemiBold" />
-                    <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsBusy}" Height="3" />
-                    <TextBlock Text="{Binding Status}" TextWrapping="Wrap" />
-                    <StackPanel IsVisible="{Binding HasInspection}" Spacing="6">
-                        <TextBlock Text="{Binding CountSummary}" />
-                        <TextBlock Text="{Binding LastInspection}" Opacity="0.7" />
-                        <TextBlock Text="No files in this folder." IsVisible="{Binding ShowEmpty}" />
+                    <StackPanel IsVisible="{Binding IsGitHubSettings}" Spacing="18">
+                        <TextBlock Text="GitHub Connection" FontSize="24" FontWeight="SemiBold" />
+                        <TextBlock Text="{Binding GitHub.ConnectionStatus}" FontWeight="SemiBold" />
+                        <TextBlock Text="{Binding GitHub.Notice}" />
+                        <ProgressBar IsIndeterminate="True" Height="3" IsVisible="{Binding GitHub.IsBusy}" />
+                        <TextBlock Text="{Binding GitHub.LastCheck}" Classes="muted" />
+                        <Border Classes="card" IsVisible="{Binding GitHub.IsConnected}">
+                            <StackPanel Spacing="10">
+                                <TextBlock Text="Account" Classes="muted" />
+                                <TextBlock Text="{Binding GitHub.Account}" />
+                                <TextBlock Text="Repository" Classes="muted" />
+                                <TextBlock Text="{Binding RepositoryName}" />
+                            </StackPanel>
+                        </Border>
+                        <StackPanel IsVisible="{Binding ShowDisconnected}" Spacing="12">
+                            <TextBlock Text="Connect your GitHub account to sync your saves across devices." />
+                            <Button Content="Connect with GitHub" Classes="primary" Click="SettingsConnect_Click" IsEnabled="{Binding GitHub.CanConnect}" />
+                        </StackPanel>
+                        <WrapPanel>
+                            <Button Content="Change Repository" Classes="primary" Click="ChangeRepository_Click" IsVisible="{Binding GitHub.IsConnected}" IsEnabled="{Binding GitHub.CanManage}" Margin="0,0,12,12" />
+                            <Button Content="Reconnect" Click="Reconnect_Click" IsVisible="{Binding GitHub.IsConnected}" IsEnabled="{Binding GitHub.CanConnect}" Margin="0,0,12,12" />
+                            <Button Content="Check Connection" Click="ReloadRepositories_Click" IsEnabled="{Binding GitHub.CanReload}" Margin="0,0,12,12" />
+                            <Button Content="Open in Browser" Click="OpenRepository_Click" IsVisible="{Binding GitHub.IsConnected}" Margin="0,0,12,12" />
+                            <Button Content="Manage GitHub Access" Click="ManageAccess_Click" Margin="0,0,12,12" />
+                            <Button Content="Disconnect" Click="Disconnect_Click" IsEnabled="{Binding GitHub.CanManage}" Margin="0,0,12,12" />
+                            <Button Content="Cancel" Click="CancelGitHub_Click" IsVisible="{Binding GitHub.IsBusy}" Margin="0,0,12,12" />
+                        </WrapPanel>
+
                     </StackPanel>
-                    <ItemsControl ItemsSource="{Binding Files}">
+                </StackPanel>
+                <StackPanel IsVisible="{Binding ShowFolder}" Spacing="18">
+                    <TextBlock Text="Find Your Saves" Classes="title" IsVisible="{Binding IsFolder}" />
+                    <TextBlock Text="Select the folder where Project Diablo 2 stores your single-player saves." IsVisible="{Binding IsFolder}" />
+                    <Border Classes="card">
+                        <StackPanel Spacing="12">
+                            <TextBlock Text="Save Folder" FontSize="20" FontWeight="SemiBold" />
+                            <SelectableTextBlock Text="{Binding Local.SelectedPath}" TextWrapping="Wrap" />
+                            <Button Content="Select Folder" Click="SelectFolder_Click" IsEnabled="{Binding Local.CanSelect}" IsVisible="{Binding ShowFolderEditor}" />
+                            <TextBlock Text="{Binding Local.StateLabel}" IsVisible="{Binding ShowFolderEditor}" />
+                            <ProgressBar IsIndeterminate="True" Height="3" IsVisible="{Binding Local.IsBusy}" />
+                            <TextBlock Text="{Binding Local.Status}" IsVisible="{Binding ShowFolderEditor}" />
+                            <TextBlock Text="{Binding Local.CountSummary}" IsVisible="{Binding Local.HasInspection}" />
+                            <TextBlock Text="{Binding Local.LastInspection}" Classes="muted" IsVisible="{Binding ShowFolderEditor}" />
+                            <TextBlock Text="{Binding Local.SettingsNotice}" IsVisible="{Binding Local.HasSettingsNotice}" />
+                            <TextBlock Text="{Binding Local.PickerNotice}" IsVisible="{Binding Local.HasPickerNotice}" />
+                            <Button Content="Retry Inspection" Click="Inspect_Click" IsEnabled="{Binding Local.CanRefresh}" IsVisible="{Binding ShowFolderEditor}" />
+                        </StackPanel>
+                    </Border>
+                    <TextBlock Text="{Binding FolderExplanation}" Classes="muted" IsVisible="{Binding IsFolder}" />
+                    <WrapPanel IsVisible="{Binding IsFolder}">
+                        <Button Content="Continue" Classes="primary" Click="CompleteSetup_Click" IsEnabled="{Binding CanContinueFolder}" Margin="0,0,12,12" />
+                        <Button Content="Back" Click="Back_Click" Margin="0,0,12,12" />
+                    </WrapPanel>
+                    <ItemsControl ItemsSource="{Binding Local.Files}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="core:FileEntry">
-                                <SelectableTextBlock Text="{Binding RelativePath}" TextWrapping="Wrap" Margin="0,4" />
+                                <Border BorderBrush="#303947" BorderThickness="0,0,0,1" Padding="4,10">
+                                    <SelectableTextBlock Text="{Binding RelativePath}" TextWrapping="Wrap" />
+                                </Border>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
-                    <Expander Header="Inspection Details" IsExpanded="False" HorizontalAlignment="Stretch" IsVisible="{Binding HasInspection}">
+                    <Expander Header="Inspection Details" IsVisible="{Binding Local.HasInspection}" HorizontalAlignment="Stretch">
                         <StackPanel Spacing="12">
-                            <TextBlock Text="Validation issues and excluded entries" FontWeight="SemiBold" />
-                            <ItemsControl ItemsSource="{Binding Issues}">
+                            <TextBlock Text="{Binding Local.LastInspection}" Classes="muted" />
+                            <ItemsControl ItemsSource="{Binding Local.Issues}">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate x:DataType="core:ValidationIssue">
-                                        <StackPanel Margin="0,4" Spacing="3">
-                                            <SelectableTextBlock Text="{Binding RelativePath}" TextWrapping="Wrap" />
-                                            <TextBlock Text="{Binding Message}" TextWrapping="Wrap" />
+                                        <StackPanel Margin="0,8" Spacing="4">
+                                            <TextBlock Text="{Binding RelativePath}" FontWeight="SemiBold" />
+                                            <TextBlock Text="{Binding Message}" />
                                         </StackPanel>
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
                             <TextBlock Text="File sizes (bytes) and SHA-256" FontWeight="SemiBold" />
-                            <ItemsControl ItemsSource="{Binding Files}">
+                            <ItemsControl ItemsSource="{Binding Local.Files}">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate x:DataType="core:FileEntry">
                                         <StackPanel Margin="0,6" Spacing="3">
-                                            <SelectableTextBlock Text="{Binding RelativePath}" TextWrapping="Wrap" />
-                                            <TextBlock Text="{Binding SizeBytes}" Opacity="0.7" />
+                                            <TextBlock Text="{Binding RelativePath}" />
+                                            <TextBlock Text="{Binding SizeBytes}" Classes="muted" />
                                             <SelectableTextBlock Text="{Binding Sha256}" TextWrapping="Wrap" FontSize="11" />
                                         </StackPanel>
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
                             <TextBlock Text="Collection fingerprint" FontWeight="SemiBold" />
-                            <SelectableTextBlock Text="{Binding CollectionFingerprint}" TextWrapping="Wrap" FontSize="11" />
+                            <SelectableTextBlock Text="{Binding Local.CollectionFingerprint}" TextWrapping="Wrap" FontSize="11" />
                         </StackPanel>
                     </Expander>
                 </StackPanel>
-                <Border BorderBrush="Gray" BorderThickness="1" CornerRadius="8" Padding="16">
-                    <StackPanel DataContext="{Binding GitHub}" x:DataType="vm:GitHubConnectionViewModel" Spacing="12">
-                        <TextBlock Text="GitHub connection" FontSize="22" FontWeight="SemiBold" />
-                        <TextBlock Text="{Binding Account}" TextWrapping="Wrap" />
-                        <TextBlock Text="{Binding Notice}" TextWrapping="Wrap" />
-                        <StackPanel IsVisible="{Binding HasCode}" Spacing="8">
-                            <SelectableTextBlock Text="{Binding VerificationAddress}" TextWrapping="Wrap" />
-                            <SelectableTextBlock Text="{Binding UserCode}" FontSize="24" FontWeight="Bold" />
-                        </StackPanel>
-                        <WrapPanel>
-                            <Button Content="Connect to GitHub" Click="Connect_Click" IsEnabled="{Binding CanConnect}" Margin="0,0,8,8" />
-                            <Button Content="Cancel" Click="CancelGitHub_Click" IsVisible="{Binding IsBusy}" Margin="0,0,8,8" />
-                            <Button Content="Reload Repositories" Click="ReloadRepositories_Click" IsEnabled="{Binding CanReload}" Margin="0,0,8,8" />
-                            <Button Content="Disconnect" Click="Disconnect_Click" IsEnabled="{Binding CanManage}" Margin="0,0,8,8" />
-                        </WrapPanel>
-                        <ComboBox ItemsSource="{Binding Repositories}" SelectedItem="{Binding Candidate}" IsEnabled="{Binding CanManage}" PlaceholderText="Choose a private repository" HorizontalAlignment="Stretch" />
-                        <Button Content="Use Repository" Click="ChooseRepository_Click" IsEnabled="{Binding CanSelect}" />
-                        <TextBlock Text="{Binding Selection}" TextWrapping="Wrap" />
-                    </StackPanel>
-                </Border>
+                <TextBlock Text="{Binding Local.SettingsNotice}" IsVisible="{Binding IsConnect}" Classes="muted" />
+                <TextBlock Text="{Binding BrowserNotice}" IsVisible="{Binding HasBrowserNotice}" />
             </StackPanel>
         </ScrollViewer>
     </Grid>

@@ -4,6 +4,8 @@ Revised 2026-10-15. The generic folder synchronization specification supersedes 
 
 PD2 Cloud is a generic folder synchronization engine. All regular files within the selected directory are treated as opaque binary data. It will synchronize a complete recursive file inventory as one logical snapshot through a private GitHub repository. There is no game-format parser or game configuration model.
 
+The 2026-10-16 [GitHub setup UX](github-setup-ux.md) adds shared onboarding/Settings navigation, browser/clipboard actions, persisted setup progress and a dashboard. Repository contents and synchronization remain unimplemented.
+
 ## Current boundaries
 
 Use C#/.NET 10 and Avalonia MVVM. Core holds generic models, pure collection comparison and the scanner boundary, Local implements filesystem inspection, and Desktop composes them with a native picker. Local never depends on GitHub or Desktop. GitHub implements authentication and repository metadata without depending on Core/Local; Platform implements native credential storage. Desktop composes independent inspection and connection view models. The [inspection specification](folder-inspection.md) defines schema 1, canonical paths, hashing and safety guarantees.
@@ -35,7 +37,7 @@ Tasks 2–5 are implemented; task 5 supports a developer-supplied public client 
 
 Task 4 implements only step 4 and its advisory decisions below, through `CollectionComparer.Compare` in Core. See the [comparison contract](collection-comparison.md) for API inputs, validation precedence and limitations. It accepts an optional supplied successful baseline; it never creates, loads, saves or advances one. Callers must supply verified pinned remote state and baseline history evidence. The desktop supports local inspection and separate GitHub connection; it does not invoke comparison or cloud inventory reads.
 
-Local startup and Refresh inspect only; separate connection startup restores credentials and reads account/repository metadata. An explicit Sync All action is the only transfer trigger; there is no automatic background sync. The future flow is:
+Local startup and Retry Inspection inspect only; separate connection startup restores credentials and reads account/repository metadata. Dashboard Refresh runs those local/metadata checks independently; it cannot inspect cloud file changes. An explicit Sync All action is the only transfer trigger; there is no automatic background sync. The future flow is:
 
 1. Inspect/capture the local folder and create a deterministic manifest.
 2. Read the last successfully synchronized device baseline.
