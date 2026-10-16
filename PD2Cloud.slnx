@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/PD2Cloud.Remote/PD2Cloud.Remote.csproj" />
     <Project Path="src/PD2Cloud.GitHub/PD2Cloud.GitHub.csproj" />
     <Project Path="src/PD2Cloud.Platform/PD2Cloud.Platform.csproj" />
     <Project Path="src/PD2Cloud.Desktop/PD2Cloud.Desktop.csproj" />

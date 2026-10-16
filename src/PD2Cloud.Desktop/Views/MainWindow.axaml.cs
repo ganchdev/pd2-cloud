@@ -79,6 +79,8 @@ public partial class MainWindow : Window
         else model.CancelDisconnect();
     }
     private void CancelGitHub_Click(object? sender, RoutedEventArgs e) => Model?.GitHub.Cancel();
+    private void CancelCloud_Click(object? sender, RoutedEventArgs e) => Model?.Cloud.Cancel();
+    private async void CheckCloud_Click(object? sender, RoutedEventArgs e) { if (Model is { } m) await m.CheckCloudAsync(); }
     private async void OpenAuthorization_Click(object? sender, RoutedEventArgs e) { if (Model is { } m && m.GitHub.HasCode) await OpenBrowserAsync(m.GitHub.VerificationAddress); }
     private async void CreateRepository_Click(object? sender, RoutedEventArgs e) => await OpenBrowserAsync("https://github.com/new?visibility=private&name=pd2-saves");
     private async void ManageAccess_Click(object? sender, RoutedEventArgs e) => await OpenBrowserAsync("https://github.com/settings/installations");

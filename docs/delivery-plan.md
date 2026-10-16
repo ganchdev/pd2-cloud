@@ -10,13 +10,16 @@ Revised 2026-10-15 for generic folder synchronization. Earlier game-format inven
 | 1. Folder selection and inspection | Implemented; listing replaced by task 2 | Native picker interaction and platform acceptance |
 | 2. Generic recursive discovery | Implemented | Native Windows/Linux checks and large-folder performance remain unverified |
 | 3. Persistent local dashboard | Implemented | Native Windows/Linux acceptance; see limitations below |
-| 4. Collection comparison | Implemented | Pure Core API only; remote verification and transfer gates remain future work |
+| 4. Collection comparison | Implemented | Pure Core API with task-6 advisory desktop integration; baseline persistence and transfer gates remain future work |
 | 5. GitHub connection | Implemented; live acceptance pending | Verify configured app registration, live device/token/repository checks and remaining native platform gates |
-| 6–11. Cloud reads, recovery and distribution | Not started | See subsequent chunks below |
+| 6. Cloud reads | Implemented; live acceptance pending | Pinned verification, classification and advisory desktop comparison; see [cloud reads](cloud-reads.md) |
+| 7–11. Recovery, transfers and distribution | Not started | See subsequent chunks below |
 
-The next planned implementation task is **task 6**, only with separate direction. Task 5 live acceptance gates are tracked in [GitHub connection](github-connection.md). Native acceptance can be completed separately; obsolete game-profile evidence does not block further generic-folder work.
+The next planned implementation task is **task 7 (backups and recovery)**, only with separate direction. Task 5 live acceptance gates are tracked in [GitHub connection](github-connection.md). Native acceptance can be completed separately; obsolete game-profile evidence does not block further generic-folder work.
 
-## Current tasks
+## Implementation history
+
+Tasks 1–5 below record their original delivery boundaries and validation counts. Task 6 and the status table above describe current cloud-read/comparison behavior.
 
 ### 1. Select and inspect a folder
 
@@ -66,14 +69,18 @@ Development runs load `PD2CLOUD_GITHUB_CLIENT_ID` from optional ignored `.local.
 
 ## GitHub setup UX follow-up (2026-10-16)
 
-Shared onboarding and Settings screens replace the single connection panel. Added native browser/clipboard actions, repository creation/access guidance, confirmation before disconnect, persisted setup start/completion and dashboard routing. See the [UX contract](github-setup-ux.md) for exact behavior, validation and remaining boundaries. This does not implement task 6 or transfers. Dashboard Refresh checks local files and account/repository metadata only.
+Shared onboarding and Settings screens replace the single connection panel. Added native browser/clipboard actions, repository creation/access guidance, confirmation before disconnect, persisted setup start/completion and dashboard routing. See the [UX contract](github-setup-ux.md) for exact behavior, validation and remaining boundaries. The follow-up originally checked metadata only. Task 6 now adds read-only cloud verification and advisory comparison; no transfers exist.
+
+## Verified cloud reads (task 6, 2026-10-16)
+
+Implemented read-only pinned Git object and manifest verification, empty/managed/unrelated/incompatible classification, explicit unavailable states and advisory desktop comparison. Checks run after selection/restoration and dashboard Refresh. Complete tree hashes and managed blob bytes are verified, resource limits fail closed, changing heads/access reject the observation, and account/selection changes cancel stale results. Local inspection remains independent. See [cloud reads](cloud-reads.md) for schema, limits and trust boundaries. No successful baseline, ancestry lookup, adoption, transfers or source writes are implemented. All 208 tests, standard Release build (zero warnings/errors), formatting and diff checks pass on macOS. Actual MainWindow cloud states were rendered/inspected with synthetic HTTP at normal/minimum sizes. Live GitHub and native/cross-platform acceptance remain open.
 
 ## Subsequent chunks
 
 | Chunk | Deliverable and gate |
 |---|---|
 | 5. GitHub connection | Implemented; registered app/live checks and remaining native acceptance required (see above) |
-| 6. Cloud reads | Verified pinned manifests/trees/blobs, offline/error states; no repository writes during onboarding or Refresh |
+| 6. Cloud reads | Implemented: pinned manifests/trees/blobs, classifications, bounded offline/error states and advisory comparison. No source/repository writes; live acceptance pending |
 | 7. Backups and recovery | Immutable capture, verified backups, durable journals and serialized operations; interruption tests before enabling source writes |
 | 8. First safe upload | Explicit Sync All, private-repo checks, managed namespace, unrelated-content preservation and non-forced publication |
 | 9. First safe download | Verified install into an empty target, then one-sided changes both ways; byte-identical two-device and recovery tests |

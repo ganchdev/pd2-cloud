@@ -1,6 +1,6 @@
 # Generic folder inspection
 
-Implementation reference, updated 2026-10-15. Tasks 2–5 are implemented; GitHub connection is separate from inspection, and cloud synchronization is not.
+Implementation reference, updated 2026-10-15. Tasks 2–6 are implemented; GitHub/cloud reads remain separate from local inspection. Transfers and successful-sync persistence are unimplemented.
 
 PD2 Cloud is a generic folder synchronization engine. All regular files within the selected directory are treated as opaque binary data. The product's save-folder wording is presentation only; discovery contains no format knowledge or file-content parsing.
 
@@ -107,4 +107,4 @@ Task-4 macOS verification: standard `mise run test` passed all 97 cases, `mise r
 
 ## Independent GitHub connection (task 5)
 
-The desktop now also offers GitHub App connection and private repository selection. The scanner, folder settings, manifest/fingerprint rules and pure comparison are unchanged. Local startup inspection and Retry Inspection do not call GitHub or touch credentials. Dashboard Refresh independently also checks GitHub account/repository metadata; cloud file changes remain unchecked. Connection startup restores native credentials and reads account/repository metadata independently; a stalled or failed GitHub operation leaves folder inspection usable. No repository inventory reads/writes, source writes, baseline persistence or background sync were added. See [GitHub connection](github-connection.md) for setup, tests and remaining live/native acceptance gates.
+The desktop now also offers GitHub App connection and private repository selection. The scanner, folder settings, manifest/fingerprint rules and pure comparison are unchanged. Local startup inspection and Retry Inspection do not call GitHub or touch credentials. Dashboard Refresh independently checks GitHub account/repository metadata and then runs task-6 pinned cloud verification. Connection startup restores native credentials and reads account/repository metadata independently; a stalled or failed GitHub operation leaves folder inspection usable. Task 6 now adds read-only remote inventories and advisory comparison through the separate Remote bridge; local scanning remains unchanged. No repository/source writes, baseline persistence or background sync exist. See [cloud reads](cloud-reads.md). See [GitHub connection](github-connection.md) for setup, tests and remaining live/native acceptance gates.

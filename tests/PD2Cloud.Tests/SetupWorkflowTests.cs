@@ -234,6 +234,46 @@ public sealed class SetupWorkflowTests : IDisposable
         Assert.True(workflow.IsSavesSettings); Assert.True(workflow.Local.Manifest!.IsValid);
     }
 
+    [Fact]
+    public async Task SlowCloudReadLeavesLocalRefreshUsableAndAccountChecksInvalidateIt()
+    {
+        Connected(); await Settings.SaveFolderAsync(Source); await Settings.SaveSetupCompletedAsync();
+        handler.StallCloud = true;
+        using var workflow = Create();
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        workflow.Cloud.PropertyChanged += (_, _) => { if (workflow.Cloud.IsBusy) started.TrySetResult(); };
+        var startup = workflow.InitializeAsync();
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(workflow.IsDashboard); Assert.False(workflow.GitHub.IsBusy);
+        await File.WriteAllBytesAsync(Path.Combine(Source, "save.bin"), [0, 255, 1]);
+        await workflow.Local.RefreshAsync();
+        Assert.Single(workflow.Local.Files); Assert.True(workflow.Local.Manifest!.IsValid);
+        Assert.Null(workflow.Comparison);
+        await workflow.GitHub.ReloadAsync(); await startup;
+        Assert.Null(workflow.Cloud.Result); Assert.False(workflow.Cloud.IsBusy);
+        Assert.Equal(new byte[] { 0, 255, 1 }, await File.ReadAllBytesAsync(Path.Combine(Source, "save.bin")));
+        Assert.Equal(0, handler.Writes);
+    }
+
+    [Fact]
+    public async Task CloudRetryInFolderAndSettingsDoesNotRescanOrChangePreferences()
+    {
+        Connected(); using var workflow = Create();
+        await workflow.InitializeAsync(); await workflow.Local.SelectFolderAsync();
+        var inspection = workflow.Local.Manifest;
+        Assert.True(workflow.IsFolder); Assert.True(workflow.CanCheckCloud);
+        handler.Requests.Clear(); await workflow.CheckCloudAsync();
+        Assert.Same(inspection, workflow.Local.Manifest);
+        Assert.DoesNotContain("/user", handler.Requests);
+        Assert.Equal("Not yet synchronized", workflow.SyncStatus);
+        workflow.OpenSettings(); await workflow.GitHub.ReloadAsync();
+        Assert.Null(workflow.Cloud.Result); Assert.Null(workflow.Comparison);
+        await workflow.CheckCloudAsync(); Assert.True(workflow.IsGitHubSettings);
+        Assert.NotNull(workflow.Cloud.Result); Assert.Same(inspection, workflow.Local.Manifest);
+        Assert.Equal(Source, (await Settings.LoadAsync()).SelectedFolder);
+        Assert.Equal(0, handler.Writes);
+    }
+
     private sealed class Clock : TimeProvider
     {
         private long ticks = DateTimeOffset.UtcNow.UtcTicks;
@@ -263,7 +303,7 @@ public sealed class SetupWorkflowTests : IDisposable
     }
     private sealed class Handler : HttpMessageHandler
     {
-        public bool Offline, Empty, AuthorizeComplete, Stall;
+        public bool Offline, Empty, AuthorizeComplete, Stall, StallCloud;
         public List<string> Requests { get; } = [];
         public int Writes;
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
@@ -272,9 +312,13 @@ public sealed class SetupWorkflowTests : IDisposable
             if (request.Method != HttpMethod.Get && !path.StartsWith("/login/", StringComparison.Ordinal)) Writes++;
             if (Offline) throw new HttpRequestException();
             if (Stall) return Task.Delay(Timeout.Infinite, ct).ContinueWith<HttpResponseMessage>(_ => throw new OperationCanceledException(ct), TaskScheduler.Default);
+            if (StallCloud && path == "/repos/player/saves/commits") return Task.Delay(Timeout.Infinite, ct).ContinueWith<HttpResponseMessage>(_ => throw new OperationCanceledException(ct), TaskScheduler.Default);
             if (path == "/login/device/code" && !AuthorizeComplete) return Task.Delay(Timeout.Infinite, ct).ContinueWith<HttpResponseMessage>(_ => throw new OperationCanceledException(ct), TaskScheduler.Default);
             var json = path switch
             {
+                "/repos/player/saves" => """{"id":1,"full_name":"player/saves","default_branch":"main","private":true,"archived":false,"disabled":false,"permissions":{"push":true}}""",
+                "/repos/player/other" => """{"id":2,"full_name":"player/other","default_branch":"main","private":true,"archived":false,"disabled":false,"permissions":{"push":true}}""",
+                "/repos/player/saves/commits" or "/repos/player/other/commits" => "[]",
                 "/login/device/code" => """{"device_code":"synthetic","user_code":"ABCD-EFGH","verification_uri":"https://github.com/login/device","expires_in":900,"interval":5}""",
                 "/login/oauth/access_token" => """{"access_token":"synthetic","token_type":"bearer"}""",
                 "/user" => """{"login":"player"}""",

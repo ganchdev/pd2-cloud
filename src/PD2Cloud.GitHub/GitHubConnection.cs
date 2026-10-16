@@ -65,6 +65,19 @@ public sealed class GitHubConnection(GitHubApi api, ICredentialStore store, Time
         finally { gate.Release(); }
     }
 
+    public async Task<RepositorySnapshot> ReadRepositoryAsync(RepositoryChoice expected, CancellationToken ct)
+    {
+        await gate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            var credentials = await ReadAsync(ct).ConfigureAwait(false) ?? throw new ConnectionException("Connect to GitHub first.");
+            if (credentials.Repository != expected) throw new ConnectionException("Repository selection changed. Refresh before checking cloud files.");
+            credentials = await CurrentAsync(credentials, ct).ConfigureAwait(false);
+            return await api.ReadRepositoryAsync(expected, credentials.AccessToken, ct).ConfigureAwait(false);
+        }
+        finally { gate.Release(); }
+    }
+
     private async Task<ConnectionCredentials?> ReadAsync(CancellationToken ct)
     {
         var json = await store.ReadAsync(ct).ConfigureAwait(false);

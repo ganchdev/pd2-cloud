@@ -139,7 +139,7 @@
                         <Button Content="Sync All" Classes="primary" IsEnabled="False" Margin="0,0,12,12" ToolTip.Tip="Synchronization is not available yet." />
                         <Button Content="Refresh" Click="Refresh_Click" Margin="0,0,12,12" />
                     </WrapPanel>
-                    <TextBlock Text="Refresh checks local files and your connection. Cloud file checks are coming later." Classes="muted" />
+                    <TextBlock Text="Refresh inspects local files and verifies cloud contents at one checked revision. It never transfers files." Classes="muted" />
                     <TextBlock Text="{Binding GitHub.Notice}" IsVisible="{Binding ShowGitHubNotice}" />
                 </StackPanel>
                 <StackPanel IsVisible="{Binding IsSettings}" Spacing="20">
@@ -183,6 +183,17 @@
 
                     </StackPanel>
                 </StackPanel>
+                <Border Classes="card" IsVisible="{Binding ShowCloud}">
+                    <StackPanel Spacing="10">
+                        <TextBlock Text="Cloud Collection" FontSize="20" FontWeight="SemiBold" />
+                        <TextBlock Text="{Binding Cloud.Notice}" />
+                        <ProgressBar IsIndeterminate="True" Height="3" IsVisible="{Binding Cloud.IsBusy}" />
+                        <SelectableTextBlock Text="{Binding Cloud.Revision}" TextWrapping="Wrap" FontSize="11" />
+                        <TextBlock Text="{Binding ComparisonStatus}" Classes="muted" />
+                        <Button Content="Check Cloud Files" Click="CheckCloud_Click" IsEnabled="{Binding CanCheckCloud}" />
+                        <Button Content="Cancel Cloud Check" Click="CancelCloud_Click" IsVisible="{Binding Cloud.IsBusy}" />
+                    </StackPanel>
+                </Border>
                 <StackPanel IsVisible="{Binding ShowFolder}" Spacing="18">
                     <TextBlock Text="Find Your Saves" Classes="title" IsVisible="{Binding IsFolder}" />
                     <TextBlock Text="Select the folder where Project Diablo 2 stores your single-player saves." IsVisible="{Binding IsFolder}" />

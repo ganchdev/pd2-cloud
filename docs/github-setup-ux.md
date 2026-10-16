@@ -1,6 +1,6 @@
 # GitHub setup and Settings UX
 
-Implemented 2026-10-16. This replaces the single combined inspection/connection panel with a dark Avalonia desktop workflow. It does not implement cloud reads, transfers, comparison integration or successful-sync persistence.
+Implemented 2026-10-16. This replaces the single combined inspection/connection panel with a dark Avalonia desktop workflow. Task 6 now extends this journey with [verified cloud reads](cloud-reads.md) and advisory comparison. Transfers and successful-sync persistence remain unimplemented.
 
 ## Navigation and saved progress
 
@@ -27,7 +27,7 @@ The existing GitHub device flow runs unchanged. Once a code arrives on the UI th
 
 The repository list displays name, owner and Private, with a single selected row. Continue revalidates privacy/access and securely saves selection before navigating. Create Private Repository opens GitHub's creation page; Manage GitHub Access opens installed-app settings. Inline help explains installation links, organization approval, private creation and returning to refresh. With an empty eligible list the UI says **No available repositories**, explaining both creation and granting access; metadata cannot establish that the account has no repositories. A previously stored selection that no longer matches current metadata is explicitly flagged.
 
-The current service does not read repository contents. The UI explicitly says that contents have not been checked; it cannot classify empty, existing PD2 Cloud, unrelated or incompatible content. Selection never initializes or overwrites a repository. Those classifications require task 6's verified remote reads and must be added there.
+After selection is saved, task 6 checks content without writing: empty repository, existing verified PD2 Cloud collection, unrelated content or incompatible managed data. The cloud card reports the classification or a safe unavailable notice. Unrelated content requires future adoption confirmation, and incompatible content blocks comparison. Selection never initializes or overwrites a repository. Exact schema and verification are in [cloud reads](cloud-reads.md).
 
 Settings contains General, GitHub and Saves. GitHub shows account, selected repository, current connection result and session-local last successful metadata check. Check Connection, Change Repository, Reconnect, Disconnect, Open in Browser and Manage GitHub Access share the existing services. Disconnect requires an owned modal dialog with Keep Connected as the default; only explicit confirmation removes the local native credential entry. Local settings/files and the remote repository remain intact. Remote revocation is separate.
 
@@ -35,11 +35,13 @@ Settings contains General, GitHub and Saves. GitHub shows account, selected repo
 
 The native picker and generic opaque-file scanner are reused. Continue requires a complete valid inspection, even for empty folders. Empty folders explain future downloading; populated folders explain that comparison must precede synchronization. No profiles, format parsing or extension rules are introduced.
 
-The dashboard shows connection, repository, folder and local files. Its status is **Not yet synchronized** when inspection and selection are valid, otherwise **Needs attention**. No Synced/Local changes/Cloud changes/Conflict state is fabricated. Sync All is visibly disabled with an availability explanation. Dashboard Refresh runs independent local inspection and account/repository metadata checks; it does not inspect cloud file changes. Retry Inspection and Settings → Saves use local inspection only.
+The dashboard shows connection, repository, folder and local files. Its status is **Not yet synchronized** when inspection and selection are valid, otherwise **Needs attention**. No Synced state is fabricated. Sync All is visibly disabled with an availability explanation. Dashboard Refresh runs independent local inspection and account/repository metadata checks, followed by pinned cloud verification. A cloud card reports the checked revision and advisory matching-files/initial-upload/initial-download/conflict result only for verified managed inventories; empty uninitialized, unrelated and incompatible repositories never fabricate comparison inputs. Retry Inspection and Settings → Saves use local inspection only.
 
-Changing repositories clears the displayed verified choice while validation runs. No comparison result or successful-sync status is retained for a new pairing. A fresh comparison is deferred until verified cloud inputs exist; Core comparison is unchanged. No account/setup/refresh action writes source files or repository contents.
+Changing repositories clears the displayed verified choice while validation runs. No comparison result or successful-sync status is retained for a new pairing. A fresh advisory comparison uses current local inspection and task-6 verified cloud inputs; Core comparison is unchanged. Metadata/account/selection operations cancel and invalidate cloud evidence. Startup shows a returning dashboard without waiting for cloud reads. Check Cloud Files, Cancel Cloud Check and independent local Retry Inspection remain available. No account/setup/refresh action writes source files or repository contents.
 
 ## Verification and remaining acceptance
+
+The figures below record the original UX follow-up. Task-6 implementation and verification are recorded in [cloud reads](cloud-reads.md).
 
 All 143 tests pass on macOS (16 new workflow/preference cases). The standard Release build passes with zero warnings/errors; formatting and `git diff --check` pass. Behavior tests cover new/interrupted/completed setup, successful authorization destinations, Settings connect/reconnect/change, cancellation, offline restart, missing folders, empty eligible lists and refresh, failed selection/completion persistence, unknown-field preservation and disconnect confirmation. Existing authentication/scanner/comparison/settings tests continue to apply.
 

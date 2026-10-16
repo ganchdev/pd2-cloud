@@ -1,4 +1,6 @@
 using System.ComponentModel;
+using PD2Cloud.Core;
+using PD2Cloud.Remote;
 
 namespace PD2Cloud.Desktop.ViewModels;
 
@@ -11,6 +13,7 @@ public sealed class SetupWorkflowViewModel : INotifyPropertyChanged, IDisposable
 {
     public MainWindowViewModel Local { get; }
     public GitHubConnectionViewModel GitHub { get; }
+    public CloudInspectionViewModel Cloud { get; }
     public SetupScreen Screen { get; private set; } = SetupScreen.Loading;
     public SettingsSection Section { get; private set; } = SettingsSection.GitHub;
     public ConnectionJourney Journey { get; private set; }
@@ -24,8 +27,10 @@ public sealed class SetupWorkflowViewModel : INotifyPropertyChanged, IDisposable
     {
         Local = local;
         GitHub = local.GitHub ?? throw new ArgumentException("GitHub connection is required.", nameof(local));
+        Cloud = new CloudInspectionViewModel(GitHub.ReadCloudAsync);
         Local.PropertyChanged += ChildChanged;
         GitHub.PropertyChanged += ChildChanged;
+        Cloud.PropertyChanged += CloudChanged;
     }
 
     public bool IsLoading => Screen == SetupScreen.Loading;
@@ -40,6 +45,7 @@ public sealed class SetupWorkflowViewModel : INotifyPropertyChanged, IDisposable
     public bool IsGitHubSettings => IsSettings && Section == SettingsSection.GitHub;
     public bool IsSavesSettings => IsSettings && Section == SettingsSection.Saves;
     public bool ShowFolder => IsFolder || IsDashboard || IsSavesSettings;
+    public bool ShowCloud => ShowFolder || IsGitHubSettings || IsRepository;
     public bool ShowFolderEditor => IsFolder || IsSavesSettings || Local.Manifest?.IsValid != true;
     public bool ShowGitHubNotice => !GitHub.LastOperationSucceeded || GitHub.IsBusy;
     public bool CanContinueFolder => Local.Manifest?.IsValid == true && !Local.IsBusy && GitHub.SelectedRepository is not null;
@@ -48,12 +54,23 @@ public sealed class SetupWorkflowViewModel : INotifyPropertyChanged, IDisposable
     public bool ShowDisconnected => !GitHub.IsConnected;
     public string DashboardConnectionStatus => GitHub.IsConnected ? "GitHub Connected" : "GitHub Not Connected";
     public string SyncStatus => Local.Manifest?.IsValid != true || !GitHub.IsConnected || GitHub.SelectedRepository is null
+        || Cloud.Result is null || Cloud.Result.Content is RepositoryContent.Incompatible or RepositoryContent.Unrelated
         ? "Needs attention" : "Not yet synchronized";
+    public CollectionComparison? Comparison => Cloud.Compare(Local.Manifest, GitHub.SelectedRepository);
+    public string ComparisonStatus => Comparison?.Decision switch
+    {
+        ComparisonDecision.NoTransfer => "Local and cloud files match at the checked revision. This does not establish a successful synchronization.",
+        ComparisonDecision.InitialUpload => "Local files are ready for a future initial upload. The managed cloud collection is empty.",
+        ComparisonDecision.InitialDownload => "Cloud files are available for a future initial download. The local folder is empty.",
+        ComparisonDecision.Conflict => "Local and cloud collections differ. Both must be preserved for explicit review before synchronization.",
+        ComparisonDecision.Blocked => "Comparison is blocked by invalid or unverified inputs.",
+        _ => "No verified collection comparison is available. Synchronization remains disabled."
+    };
     public string FolderExplanation => Local.ShowEmpty
         ? "This folder is empty. Downloading saves will be available when synchronization is added."
         : "Your files stay here. PD2 Cloud will compare them with the cloud before any future synchronization.";
     public string RepositoryName => GitHub.SelectedRepository?.FullName ?? "Choose a repository in Settings → GitHub.";
-    public string RepositorySafety => "Only repository access has been checked. Its contents have not been checked yet. Future synchronization will check for existing PD2 Cloud saves or unrelated files before making changes.";
+    public string RepositorySafety => "Selecting a repository saves the choice and checks its contents without making changes. Empty repositories are kept separate from existing PD2 Cloud collections, unrelated files and incompatible data. Synchronization remains disabled.";
 
     public async Task InitializeAsync()
     {
@@ -62,9 +79,10 @@ public sealed class SetupWorkflowViewModel : INotifyPropertyChanged, IDisposable
         await Local.InitializeAsync();
         if (!disposed && Local.SetupCompleted) Navigate(SetupScreen.Dashboard);
         await connectionRestore;
-        if (disposed || Local.SetupCompleted) return;
-        Navigate(GitHub.SelectedRepository is not null
+        if (disposed) return;
+        if (!Local.SetupCompleted) Navigate(GitHub.SelectedRepository is not null
             ? SetupScreen.Folder : GitHub.IsConnected ? SetupScreen.Repository : Local.SetupStarted ? SetupScreen.Connect : SetupScreen.Welcome);
+        await CheckCloudAsync();
     }
 
     public async Task GetStartedAsync()
@@ -99,7 +117,7 @@ public sealed class SetupWorkflowViewModel : INotifyPropertyChanged, IDisposable
             if (GitHub.Candidate is not null)
             {
                 await GitHub.SelectAsync();
-                if (GitHub.LastOperationSucceeded) { OpenSettings(); return; }
+                if (GitHub.LastOperationSucceeded) { OpenSettings(); await CheckCloudAsync(); return; }
             }
         }
         Navigate(SetupScreen.Repository);
@@ -109,9 +127,10 @@ public sealed class SetupWorkflowViewModel : INotifyPropertyChanged, IDisposable
         if (!GitHub.CanSelect) return;
         await GitHub.SelectAsync();
         if (disposed || !GitHub.LastOperationSucceeded || GitHub.SelectedRepository is null) return;
-        // No comparison result survives pairing changes. No cloud verifier exists yet.
+        // Metadata operations invalidate previous cloud evidence before selection changes.
         if (Journey == ConnectionJourney.Onboarding) Navigate(SetupScreen.Folder);
         else OpenSettings();
+        await CheckCloudAsync();
     }
     public async Task CompleteAsync()
     {
@@ -119,7 +138,16 @@ public sealed class SetupWorkflowViewModel : INotifyPropertyChanged, IDisposable
         await Local.CompleteSetupAsync();
         if (!disposed && Local.SetupCompleted) Navigate(SetupScreen.Dashboard);
     }
-    public async Task RefreshAsync() => await Task.WhenAll(Local.RefreshAsync(), GitHub.ReloadAsync());
+    public async Task RefreshAsync()
+    {
+        Cloud.Invalidate();
+        var checkConnection = !GitHub.IsBusy;
+        await Task.WhenAll(Local.RefreshAsync(), GitHub.ReloadAsync());
+        if (checkConnection) await CheckCloudAsync();
+    }
+    public bool CanCheckCloud => !disposed && !GitHub.IsBusy && !Cloud.IsBusy && GitHub.SelectedRepository is not null;
+    public Task CheckCloudAsync() => CanCheckCloud && GitHub.SelectedRepository is { } selected
+        ? Cloud.RefreshAsync(selected) : Task.CompletedTask;
     public void RequestDisconnect() { DisconnectConfirmation = true; Notify(); }
     public void CancelDisconnect() { DisconnectConfirmation = false; Notify(); }
     public async Task DisconnectAsync()
@@ -143,13 +171,20 @@ public sealed class SetupWorkflowViewModel : INotifyPropertyChanged, IDisposable
     }
     public void SetBrowserNotice(string message) { BrowserNotice = message; Notify(); }
     private void Navigate(SetupScreen screen) { if (disposed) return; Screen = screen; BrowserNotice = ""; DisconnectConfirmation = false; Notify(); }
-    private void ChildChanged(object? sender, PropertyChangedEventArgs e) => Notify();
+    private void ChildChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (ReferenceEquals(sender, GitHub) && (GitHub.IsBusy || Cloud.Result is { } result && result.Repository != GitHub.SelectedRepository)) Cloud.Invalidate();
+        Notify();
+    }
+    private void CloudChanged(object? sender, PropertyChangedEventArgs e) => Notify();
     private void Notify() => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(null));
     public void Dispose()
     {
         disposed = true;
         Local.PropertyChanged -= ChildChanged;
         GitHub.PropertyChanged -= ChildChanged;
+        Cloud.PropertyChanged -= CloudChanged;
+        Cloud.Dispose();
         Local.Dispose();
     }
 }

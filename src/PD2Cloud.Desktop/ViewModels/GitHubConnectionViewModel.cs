@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using PD2Cloud.GitHub;
+using PD2Cloud.Remote;
 
 namespace PD2Cloud.Desktop.ViewModels;
 
@@ -9,6 +10,7 @@ public sealed class GitHubConnectionViewModel(GitHubConnection connection) : INo
     private bool disposed;
     private bool initialized;
     public event PropertyChangedEventHandler? PropertyChanged;
+    public Task<CloudReadResult> ReadCloudAsync(RepositoryChoice repository, CancellationToken ct) => new CloudCollectionReader(connection).ReadAsync(repository, ct);
     public bool IsConfigured => connection.IsConfigured;
     public bool IsConnected { get; private set; }
     public bool LastOperationSucceeded { get; private set; }

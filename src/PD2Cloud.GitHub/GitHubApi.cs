@@ -3,7 +3,7 @@ using System.Text.Json;
 
 namespace PD2Cloud.GitHub;
 
-public sealed class GitHubApi(HttpClient http, string clientId, TimeProvider? timeProvider = null)
+public sealed partial class GitHubApi(HttpClient http, string clientId, TimeProvider? timeProvider = null)
 {
     private readonly TimeProvider clock = timeProvider ?? TimeProvider.System;
     public string ClientId { get; } = clientId;
@@ -26,16 +26,28 @@ public sealed class GitHubApi(HttpClient http, string clientId, TimeProvider? ti
             request.Headers.Add("X-GitHub-Api-Version", "2022-11-28");
         }
         if (form is not null) request.Content = new FormUrlEncodedContent(form);
-        using var response = await http.SendAsync(request, ct).ConfigureAwait(false);
+        using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+        // Enforce the limit while streaming, including with injected HttpClient instances.
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(TimeSpan.FromSeconds(30));
+        await response.Content.LoadIntoBufferAsync(4 * 1024 * 1024, timeout.Token).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
+        {
+            if (response.StatusCode == System.Net.HttpStatusCode.Conflict && url.EndsWith("/commits?per_page=1", StringComparison.Ordinal))
+            {
+                using var error = JsonDocument.Parse(await response.Content.ReadAsStringAsync(timeout.Token).ConfigureAwait(false));
+                if (error.RootElement.TryGetProperty("message", out var message) && message.GetString() == "Git Repository is empty.")
+                    return JsonSerializer.SerializeToElement(Array.Empty<object>());
+            }
             throw new ConnectionException(response.StatusCode switch
             {
                 System.Net.HttpStatusCode.Unauthorized => "GitHub authorization is no longer valid. Disconnect and connect again.",
                 System.Net.HttpStatusCode.Forbidden or System.Net.HttpStatusCode.TooManyRequests => "GitHub denied access or rate limited the request. Check app access and retry later.",
                 _ => "GitHub could not complete the request. Check connectivity and retry."
             });
+        }
         // Do not include response bodies, request URIs containing secrets, or underlying exceptions in UI/logs.
-        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false));
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(timeout.Token).ConfigureAwait(false));
         return document.RootElement.Clone();
     }
 

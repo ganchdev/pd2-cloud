@@ -8,6 +8,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="../PD2Cloud.Remote/PD2Cloud.Remote.csproj" />
     <ProjectReference Include="../PD2Cloud.GitHub/PD2Cloud.GitHub.csproj" />
     <ProjectReference Include="../PD2Cloud.Platform/PD2Cloud.Platform.csproj" />
     <ProjectReference Include="../PD2Cloud.Core/PD2Cloud.Core.csproj" />
