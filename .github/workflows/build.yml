@@ -77,6 +77,20 @@ jobs:
 
       # macOS: wrap the bare executable in a .app bundle so Finder treats it as
       # an application, then package that bundle into a .dmg.
+      - name: Free disk space (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          df -h /
+          # The Xcode toolchains and preinstalled caches are irrelevant to a
+          # .NET build, and a 280 MB .app plus hdiutil scratch space does not
+          # fit on the default macOS runner image otherwise.
+          sudo rm -rf /Applications/Xcode_*.app 2>/dev/null || true
+          sudo rm -rf ~/Library/Developer/CoreSimulator/Caches 2>/dev/null || true
+          sudo rm -rf /Library/Developer/CoreSimulator/Caches 2>/dev/null || true
+          dotnet nuget locals all --clear || true
+          df -h /
       - name: Bundle .app (macOS)
         if: runner.os == 'macOS'
         shell: bash
@@ -87,7 +101,9 @@ jobs:
           APP="build/PD2Cloud.app"
           rm -rf "$APP"
           mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-          cp "publish/${{ matrix.rid }}/PD2Cloud.Desktop" "$APP/Contents/MacOS/PD2Cloud"
+          # Move rather than copy: the publish output is not needed afterwards,
+          # and duplicating a ~105 MB binary risks exhausting runner disk.
+          mv "publish/${{ matrix.rid }}/PD2Cloud.Desktop" "$APP/Contents/MacOS/PD2Cloud"
           chmod +x "$APP/Contents/MacOS/PD2Cloud"
           cat > "$APP/Contents/Info.plist" <<PLIST
           <?xml version="1.0" encoding="UTF-8"?>
@@ -126,12 +142,16 @@ jobs:
         run: |
           set -euo pipefail
           rm -f '${{ matrix.archive }}'
+          # UDZO compresses with zlib; UDZO needs scratch space for the whole
+          # image, so reclaim the publish tree before creating it.
+          rm -rf 'publish/${{ matrix.rid }}'
           hdiutil create \
             -volname 'PD2 Cloud' \
             -srcfolder 'build/PD2Cloud.app' \
             -ov -format UDZO \
             '${{ matrix.archive }}'
           hdiutil verify '${{ matrix.archive }}'
+          df -h /
 
       - name: Package (Windows)
         if: runner.os == 'Windows'
