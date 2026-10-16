@@ -45,10 +45,10 @@ jobs:
             archive: pd2-cloud-linux-x64.tar.gz
           - os: macos-latest
             rid: osx-arm64
-            archive: pd2-cloud-osx-arm64.tar.gz
+            archive: pd2-cloud-osx-arm64.dmg
           - os: macos-latest
             rid: osx-x64
-            archive: pd2-cloud-osx-x64.tar.gz
+            archive: pd2-cloud-osx-x64.dmg
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-dotnet@v6
@@ -63,14 +63,79 @@ jobs:
           -p:PublishSingleFile=true
           -p:DebugType=none
           -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:Version=${{ github.ref_type == 'tag' && github.ref_name || '1.0.0' }}
           --output publish/${{ matrix.rid }}
+
+      # macOS: wrap the bare executable in a .app bundle so Finder treats it as
+      # an application, then package that bundle into a .dmg.
+      - name: Bundle .app (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP="build/PD2Cloud.app"
+          VERSION="${{ github.ref_type == 'tag' && github.ref_name || '1.0.0' }}"
+          VERSION="${VERSION#v}"
+          rm -rf "$APP"
+          mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+          cp "publish/${{ matrix.rid }}/PD2Cloud.Desktop" "$APP/Contents/MacOS/PD2Cloud"
+          chmod +x "$APP/Contents/MacOS/PD2Cloud"
+          cat > "$APP/Contents/Info.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleName</key>
+            <string>PD2 Cloud</string>
+            <key>CFBundleDisplayName</key>
+            <string>PD2 Cloud</string>
+            <key>CFBundleIdentifier</key>
+            <string>com.ganchdev.pd2cloud</string>
+            <key>CFBundleVersion</key>
+            <string>${VERSION}</string>
+            <key>CFBundleShortVersionString</key>
+            <string>${VERSION}</string>
+            <key>CFBundlePackageType</key>
+            <string>APPL</string>
+            <key>CFBundleExecutable</key>
+            <string>PD2Cloud</string>
+            <key>CFBundleInfoDictionaryVersion</key>
+            <string>6.0</string>
+            <key>LSMinimumSystemVersion</key>
+            <string>11.0</string>
+            <key>NSHighResolutionCapable</key>
+            <true/>
+            <key>LSApplicationCategoryType</key>
+            <string>public.app-category.utilities</string>
+          </dict>
+          </plist>
+          PLIST
+          plutil -lint "$APP/Contents/Info.plist"
+      - name: Package .dmg (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f '${{ matrix.archive }}'
+          hdiutil create \
+            -volname 'PD2 Cloud' \
+            -srcfolder 'build/PD2Cloud.app' \
+            -ov -format UDZO \
+            '${{ matrix.archive }}'
+          hdiutil verify '${{ matrix.archive }}'
+
       - name: Package (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: Compress-Archive -Path 'publish/${{ matrix.rid }}/*' -DestinationPath '${{ matrix.archive }}'
-      - name: Package (Unix)
-        if: runner.os != 'Windows'
+        run: |
+          # Native SkiaSharp/HarfBuzz packages ship .pdb files that
+          # DebugType=none does not remove; keep the zip to the executable.
+          Get-ChildItem 'publish/${{ matrix.rid }}' -Filter *.pdb -ErrorAction SilentlyContinue | Remove-Item -Force
+          Compress-Archive -Path 'publish/${{ matrix.rid }}/*' -DestinationPath '${{ matrix.archive }}'
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
         run: tar -czf '${{ matrix.archive }}' -C 'publish/${{ matrix.rid }}' .
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
