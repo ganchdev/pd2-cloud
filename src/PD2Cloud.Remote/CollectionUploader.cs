@@ -94,6 +94,18 @@ public sealed class CollectionUploader(OperationPreparationStore preparations, G
                 return result;
             }, ct), ct);
 
+    public async Task<(bool IsAncestor, string? Notice)> VerifyBaselineAncestryAsync(LocalSyncState state, CancellationToken ct = default)
+    {
+        if (state.SchemaVersion != 1 || string.IsNullOrEmpty(state.LastSynchronizedCommit)
+            || string.IsNullOrEmpty(state.RepositoryIdentity) || string.IsNullOrEmpty(state.Branch))
+            return (false, "Invalid sync state for ancestry verification.");
+        var repository = new RepositoryChoice(0, state.RepositoryIdentity, state.Branch);
+        var status = await connection.VerifyAncestryAsync(repository, state.LastSynchronizedCommit, ct).ConfigureAwait(false);
+        return status is "ahead" or "identical"
+            ? (true, null)
+            : (false, "Saved sync commit is not an ancestor of the current remote head. The sync state has been preserved for review.");
+    }
+
     public Task<UploadResult> AssessRecoveryAsync(string operationId, RepositoryChoice repository, CancellationToken ct = default) =>
         preparations.CoordinateUploadAsync(operationId, false, evidence =>
             connection.CoordinateRepositoryAsync(repository, async writer =>

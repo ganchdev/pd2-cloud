@@ -169,4 +169,43 @@ public sealed class LocalSyncStateStoreTests : IDisposable
         Assert.Null(state);
         Assert.NotNull(notice);
     }
+
+    [Fact]
+    public async Task VerifyAncestryReturnsStateWhenVerificationSucceeds()
+    {
+        var state = ValidState();
+        await Store().SaveSyncStateAsync(state);
+        var (loaded, notice) = await Store().VerifyAncestryAsync(_ => Task.FromResult(true));
+        Assert.NotNull(loaded);
+        Assert.Null(notice);
+        Assert.Equal(state.LastSynchronizedCommit, loaded!.LastSynchronizedCommit);
+    }
+
+    [Fact]
+    public async Task VerifyAncestryReturnsNoticeWhenVerificationFails()
+    {
+        var state = ValidState();
+        await Store().SaveSyncStateAsync(state);
+        var (loaded, notice) = await Store().VerifyAncestryAsync(_ => Task.FromResult(false));
+        Assert.Null(loaded);
+        Assert.NotNull(notice);
+        Assert.Contains("ancestor", notice);
+    }
+
+    [Fact]
+    public async Task VerifyAncestryReturnsNullStateAndNoticeWhenFileMissing()
+    {
+        var (loaded, notice) = await Store().VerifyAncestryAsync(_ => Task.FromResult(true));
+        Assert.Null(loaded);
+        Assert.Null(notice);
+    }
+
+    [Fact]
+    public async Task VerifyAncestryReturnsNoticeWhenStateIsCorrupt()
+    {
+        await File.WriteAllTextAsync(StatePath, "{invalid");
+        var (loaded, notice) = await Store().VerifyAncestryAsync(_ => Task.FromResult(true));
+        Assert.Null(loaded);
+        Assert.NotNull(notice);
+    }
 }

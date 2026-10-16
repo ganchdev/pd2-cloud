@@ -34,6 +34,21 @@ public sealed class LocalSyncStateStore
         finally { gate.Release(); }
     }
 
+    /// <summary>Loads the sync state and verifies that the saved commit is an ancestor of the current remote HEAD.</summary>
+    public async Task<(LocalSyncState? State, string? Notice)> VerifyAncestryAsync(Func<string, Task<bool>> isAncestorOfRemoteHead)
+    {
+        await gate.WaitAsync();
+        try
+        {
+            var (state, notice) = LoadCore();
+            if (state is null) return (null, notice);
+            if (!await isAncestorOfRemoteHead(state.LastSynchronizedCommit).ConfigureAwait(false))
+                return (null, "Saved sync commit is not an ancestor of the current remote head. The sync state has been preserved for review.");
+            return (state, null);
+        }
+        finally { gate.Release(); }
+    }
+
     private (LocalSyncState? State, string? Notice) LoadCore()
     {
         try

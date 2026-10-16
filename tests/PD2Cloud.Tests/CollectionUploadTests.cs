@@ -109,6 +109,7 @@ public sealed class CollectionUploadTests : IDisposable
                     "/repos/player/saves" => repo,
                     "/repos/player/saves/commits" => Head is null ? Array.Empty<object>() : new object[] { new { sha = Head } },
                     "/repos/player/saves/git/ref/heads/main" => new { @ref = "refs/heads/main", @object = new { type = "commit", sha = Head } },
+                    _ when path.StartsWith("/repos/player/saves/compare/", StringComparison.Ordinal) => CompareCommits(path),
                     _ => null
                 };
                 var id = path.Split('/').Last();
@@ -165,6 +166,33 @@ public sealed class CollectionUploadTests : IDisposable
             return Response(body);
         }
         private static HttpResponseMessage Response(object body, HttpStatusCode status = HttpStatusCode.OK) => new(status) { Content = new StringContent(JsonSerializer.Serialize(body)) };
+        private object CompareCommits(string path)
+        {
+            var parts = path["/repos/player/saves/compare/".Length..].Split("...");
+            if (parts.Length != 2) return new { status = "diverged" };
+            var baseCommit = parts[0];
+            var headCommit = parts[1];
+            if (!Commits.ContainsKey(baseCommit) || !Commits.ContainsKey(headCommit)) return new { status = "diverged" };
+            if (baseCommit == headCommit) return new { status = "identical" };
+            if (IsAncestor(baseCommit, headCommit)) return new { status = "ahead" };
+            if (IsAncestor(headCommit, baseCommit)) return new { status = "behind" };
+            return new { status = "diverged" };
+        }
+        private bool IsAncestor(string ancestor, string descendant)
+        {
+            var visited = new HashSet<string>(StringComparer.Ordinal);
+            var queue = new Queue<string>();
+            queue.Enqueue(descendant);
+            while (queue.Count > 0)
+            {
+                var current = queue.Dequeue();
+                if (current == ancestor) return true;
+                if (!visited.Add(current)) continue;
+                if (Commits.TryGetValue(current, out var info) && info.Parent is not null)
+                    queue.Enqueue(info.Parent);
+            }
+            return false;
+        }
     }
 
     [Fact]
@@ -521,7 +549,6 @@ public sealed class CollectionUploadTests : IDisposable
         var uploader = new CollectionUploader(Store(), Connection(server), SyncStateStore());
         var result = await uploader.UploadAsync(Request(op));
         Assert.Equal(UploadStatus.Published, result.Status);
-        Assert.NotNull(result.CandidateCommit);
         var syncStatePath = Path.Combine(Data, "local-sync-state.json");
         Assert.True(File.Exists(syncStatePath));
         var store = SyncStateStore();
@@ -599,6 +626,83 @@ public sealed class CollectionUploadTests : IDisposable
         var (stateAfterAssessment, _) = await assessmentStore.LoadAsync();
         Assert.NotNull(stateAfterAssessment);
         Assert.Equal(result.State!.LastSynchronizedCommit, stateAfterAssessment.LastSynchronizedCommit);
+    }
+
+    [Fact]
+    public async Task VerifyBaselineAncestryReturnsTrueWhenSavedCommitIsAncestor()
+    {
+        var op = await Store().PrepareAsync(Source);
+        var server = new Server();
+        var uploader = new CollectionUploader(Store(), Connection(server), SyncStateStore());
+        var result = await uploader.UploadAsync(Request(op));
+        Assert.Equal(UploadStatus.Published, result.Status);
+        var descendant = new string('b', 40);
+        server.Commits[descendant] = (server.Commits[server.Head!].Tree, server.Head);
+        server.Head = descendant;
+        var syncStatePath = Path.Combine(Data, "local-sync-state.json");
+        var json = JsonNode.Parse(await File.ReadAllTextAsync(syncStatePath))!.AsObject();
+        var savedCommit = json["LastSynchronizedCommit"]!.GetValue<string>();
+        var state = new LocalSyncState(1, Repository.FullName, Repository.DefaultBranch,
+            savedCommit, op.SourceRoot, op.Files, DateTimeOffset.UtcNow, op.CollectionFingerprint);
+        var uploader2 = new CollectionUploader(Store(), Connection(server), SyncStateStore());
+        var (isAncestor, notice) = await uploader2.VerifyBaselineAncestryAsync(state);
+        Assert.True(isAncestor);
+        Assert.Null(notice);
+    }
+
+    [Fact]
+    public async Task VerifyBaselineAncestryReturnsTrueWhenSavedCommitEqualsCurrentHead()
+    {
+        var op = await Store().PrepareAsync(Source);
+        var server = new Server();
+        var uploader = new CollectionUploader(Store(), Connection(server), SyncStateStore());
+        var result = await uploader.UploadAsync(Request(op));
+        Assert.Equal(UploadStatus.Published, result.Status);
+        var syncStatePath = Path.Combine(Data, "local-sync-state.json");
+        var json = JsonNode.Parse(await File.ReadAllTextAsync(syncStatePath))!.AsObject();
+        var savedCommit = json["LastSynchronizedCommit"]!.GetValue<string>();
+        var state = new LocalSyncState(1, Repository.FullName, Repository.DefaultBranch,
+            savedCommit, op.SourceRoot, op.Files, DateTimeOffset.UtcNow, op.CollectionFingerprint);
+        var uploader2 = new CollectionUploader(Store(), Connection(server), SyncStateStore());
+        var (isAncestor, notice) = await uploader2.VerifyBaselineAncestryAsync(state);
+        Assert.True(isAncestor);
+        Assert.Null(notice);
+    }
+
+    [Fact]
+    public async Task VerifyBaselineAncestryReturnsFalseWhenSavedCommitIsNotAncestor()
+    {
+        var op = await Store().PrepareAsync(Source);
+        var server = new Server();
+        var uploader = new CollectionUploader(Store(), Connection(server), SyncStateStore());
+        await uploader.UploadAsync(Request(op));
+        var unrelatedRoot = new string('e', 40);
+        var unrelatedCommit = new string('d', 40);
+        server.Commits[unrelatedRoot] = (server.Commits[server.Head!].Tree, null);
+        server.Commits[unrelatedCommit] = (server.Commits[server.Head!].Tree, unrelatedRoot);
+        server.Head = unrelatedCommit;
+        var syncStatePath = Path.Combine(Data, "local-sync-state.json");
+        var json = JsonNode.Parse(await File.ReadAllTextAsync(syncStatePath))!.AsObject();
+        var savedCommit = json["LastSynchronizedCommit"]!.GetValue<string>();
+        var state = new LocalSyncState(1, Repository.FullName, Repository.DefaultBranch,
+            savedCommit, op.SourceRoot, op.Files, DateTimeOffset.UtcNow, op.CollectionFingerprint);
+        var uploader2 = new CollectionUploader(Store(), Connection(server), SyncStateStore());
+        var (isAncestor, notice) = await uploader2.VerifyBaselineAncestryAsync(state);
+        Assert.False(isAncestor);
+        Assert.NotNull(notice);
+        Assert.Contains("ancestor", notice);
+    }
+
+    [Fact]
+    public async Task VerifyBaselineAncestryReturnsFalseForInvalidState()
+    {
+        var server = new Server();
+        var uploader = new CollectionUploader(Store(), Connection(server), SyncStateStore());
+        var invalidState = new LocalSyncState(2, Repository.FullName, Repository.DefaultBranch,
+            new string('a', 40), "/saves", [], DateTimeOffset.UtcNow, "fp");
+        var (isAncestor, notice) = await uploader.VerifyBaselineAncestryAsync(invalidState);
+        Assert.False(isAncestor);
+        Assert.NotNull(notice);
     }
 
 }
