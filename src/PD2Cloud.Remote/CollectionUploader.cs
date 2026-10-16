@@ -15,7 +15,7 @@ public enum UploadStatus { Published, PublishedSourceChanged, NotPublished, Conc
 public sealed record UploadResult(UploadStatus Status, string? CandidateCommit);
 
 /// <summary>No UI/background caller. Does not initialize/adopt repositories or replace source files.</summary>
-public sealed class CollectionUploader(OperationPreparationStore preparations, GitHubConnection connection)
+public sealed class CollectionUploader(OperationPreparationStore preparations, GitHubConnection connection, LocalSyncStateStore syncStateStore)
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -83,7 +83,15 @@ public sealed class CollectionUploader(OperationPreparationStore preparations, G
                 ct.ThrowIfCancellationRequested();
                 // Once attempted, any error/cancellation is an uncertain result. Only recovery may inspect it; never replay.
                 await writer.PublishAsync(commit).ConfigureAwait(false);
-                return await ConfirmAsync(evidence, writer, intent, new Candidate(1, Digest(intentBytes), commit, tree), candidateBytes, ct).ConfigureAwait(false);
+                var result = await ConfirmAsync(evidence, writer, intent, new Candidate(1, Digest(intentBytes), commit, tree), candidateBytes, ct).ConfigureAwait(false);
+                if (result.Status == UploadStatus.Published)
+                {
+                    var syncState = new LocalSyncState(1, request.Repository.FullName, request.Repository.DefaultBranch,
+                        result.CandidateCommit!, request.SourceRoot, operation.Files, DateTimeOffset.UtcNow,
+                        request.CollectionFingerprint);
+                    await syncStateStore.SaveSyncStateAsync(syncState).ConfigureAwait(false);
+                }
+                return result;
             }, ct), ct);
 
     public Task<UploadResult> AssessRecoveryAsync(string operationId, RepositoryChoice repository, CancellationToken ct = default) =>

@@ -39,6 +39,7 @@ public sealed class CollectionUploadTests : IDisposable
     }
     private static UploadRequest Request(PreparedOperation op) => new(op.OperationId, op.SourceRoot, op.CollectionFingerprint, Repository, Parent);
     private static GitHubConnection Connection(Server server, Credentials? credentials = null) => new(new GitHubApi(new HttpClient(server), "client"), credentials ?? new());
+    private LocalSyncStateStore SyncStateStore() => new(Data);
     private string Record(PreparedOperation op, string name) => Path.Combine(Data, "recovery", op.OperationId, "upload", name + ".json");
 
     // Independent HTTP fixture retains unreachable objects, checks single-parent non-forced updates and serves real object bytes.
@@ -173,7 +174,7 @@ public sealed class CollectionUploadTests : IDisposable
         await File.WriteAllTextAsync(Path.Combine(Data, "settings.json"), "unrelated");
         var server = new Server();
         var original = server.Expand(server.Commits[Parent].Tree).Where(e => !e.Path.StartsWith(CloudStorage.Root, StringComparison.Ordinal)).OrderBy(e => e.Path).ToArray();
-        var uploader = new CollectionUploader(Store(), Connection(server));
+        var uploader = new CollectionUploader(Store(), Connection(server), SyncStateStore());
         var result = await uploader.UploadAsync(Request(op));
         Assert.Equal(UploadStatus.Published, result.Status);
         Assert.NotEqual(Parent, server.Head);
@@ -184,12 +185,12 @@ public sealed class CollectionUploadTests : IDisposable
             Assert.Equal(File.ReadAllBytes(Path.Combine(Source, file.RelativePath)), server.Blobs[entry.Sha]);
         }
         Assert.Equal("unrelated", await File.ReadAllTextAsync(Path.Combine(Data, "settings.json")));
-        Assert.False(File.Exists(Path.Combine(Data, "local-sync-state.json")));
+        Assert.True(File.Exists(Path.Combine(Data, "local-sync-state.json")));
         Assert.True(File.Exists(Record(op, "published")));
         Assert.Equal(RecoveryStatus.Blocked, Assert.Single(await Store().AssessRecoveryAsync()).Status);
         await Assert.ThrowsAsync<RecoveryBlockedException>(() => uploader.UploadAsync(Request(op)));
         Assert.Single(server.Writes, p => p.StartsWith("PATCH", StringComparison.Ordinal));
-        Assert.Equal(UploadStatus.Published, (await new CollectionUploader(Store(), Connection(server)).AssessRecoveryAsync(op.OperationId, Repository)).Status);
+        Assert.Equal(UploadStatus.Published, (await new CollectionUploader(Store(), Connection(server), SyncStateStore()).AssessRecoveryAsync(op.OperationId, Repository)).Status);
     }
 
     [Theory]
@@ -202,7 +203,7 @@ public sealed class CollectionUploadTests : IDisposable
     {
         var op = await Store().PrepareAsync(Source);
         var server = new Server(classification);
-        await Assert.ThrowsAsync<RecoveryBlockedException>(() => new CollectionUploader(Store(), Connection(server)).UploadAsync(Request(op)));
+        await Assert.ThrowsAsync<RecoveryBlockedException>(() => new CollectionUploader(Store(), Connection(server), SyncStateStore()).UploadAsync(Request(op)));
         Assert.Empty(server.Writes);
         Assert.False(File.Exists(Record(op, "intent")));
     }
@@ -233,7 +234,7 @@ public sealed class CollectionUploadTests : IDisposable
         if (fault == "repository") request = request with { Repository = Repository with { Id = 2 } };
         if (fault == "baseline") await File.WriteAllTextAsync(Path.Combine(Data, "local-sync-state.json"), "unverified baseline");
         var server = new Server();
-        await Assert.ThrowsAnyAsync<Exception>(() => new CollectionUploader(Store(), Connection(server)).UploadAsync(request));
+        await Assert.ThrowsAnyAsync<Exception>(() => new CollectionUploader(Store(), Connection(server), SyncStateStore()).UploadAsync(request));
         Assert.Empty(server.Writes);
     }
 
@@ -244,10 +245,10 @@ public sealed class CollectionUploadTests : IDisposable
     {
         var op = await Store().PrepareAsync(Source);
         var server = new Server { LostResponse = published, RejectUpdate = !published };
-        await Assert.ThrowsAnyAsync<Exception>(() => new CollectionUploader(Store(), Connection(server)).UploadAsync(Request(op)));
+        await Assert.ThrowsAnyAsync<Exception>(() => new CollectionUploader(Store(), Connection(server), SyncStateStore()).UploadAsync(Request(op)));
         Assert.True(File.Exists(Record(op, "candidate")));
         var writes = server.Writes.Count;
-        var restarted = new CollectionUploader(Store(), Connection(server));
+        var restarted = new CollectionUploader(Store(), Connection(server), SyncStateStore());
         for (var i = 0; i < 2; i++) Assert.Equal(published ? UploadStatus.Published : UploadStatus.NotPublished, (await restarted.AssessRecoveryAsync(op.OperationId, Repository)).Status);
         Assert.Equal(writes, server.Writes.Count);
     }
@@ -266,11 +267,11 @@ public sealed class CollectionUploadTests : IDisposable
             if (duringPatch ? route.StartsWith("PATCH", StringComparison.Ordinal) : route.StartsWith("GET /repos/player/saves/git/commits/", StringComparison.Ordinal) && !route.EndsWith(Parent, StringComparison.Ordinal))
                 server.Head = competitor;
         };
-        await Assert.ThrowsAnyAsync<Exception>(() => new CollectionUploader(Store(), Connection(server)).UploadAsync(Request(op)));
+        await Assert.ThrowsAnyAsync<Exception>(() => new CollectionUploader(Store(), Connection(server), SyncStateStore()).UploadAsync(Request(op)));
         Assert.Equal(competitor, server.Head);
         var writes = server.Writes.Count;
         server.Before = null;
-        Assert.Equal(UploadStatus.ConcurrentUpdate, (await new CollectionUploader(Store(), Connection(server)).AssessRecoveryAsync(op.OperationId, Repository)).Status);
+        Assert.Equal(UploadStatus.ConcurrentUpdate, (await new CollectionUploader(Store(), Connection(server), SyncStateStore()).AssessRecoveryAsync(op.OperationId, Repository)).Status);
         Assert.Equal(writes, server.Writes.Count);
     }
 
@@ -282,9 +283,9 @@ public sealed class CollectionUploadTests : IDisposable
     {
         var op = await Store().PrepareAsync(Source);
         var server = new Server { BadBlob = fault == "blob", BadTree = fault == "tree", BadParent = fault == "parent" };
-        await Assert.ThrowsAsync<ConnectionException>(() => new CollectionUploader(Store(), Connection(server)).UploadAsync(Request(op)));
+        await Assert.ThrowsAsync<ConnectionException>(() => new CollectionUploader(Store(), Connection(server), SyncStateStore()).UploadAsync(Request(op)));
         Assert.DoesNotContain(server.Writes, p => p.StartsWith("PATCH", StringComparison.Ordinal));
-        Assert.Equal(UploadStatus.Interrupted, (await new CollectionUploader(Store(), Connection(server)).AssessRecoveryAsync(op.OperationId, Repository)).Status);
+        Assert.Equal(UploadStatus.Interrupted, (await new CollectionUploader(Store(), Connection(server), SyncStateStore()).AssessRecoveryAsync(op.OperationId, Repository)).Status);
     }
 
     [Fact]
@@ -293,7 +294,7 @@ public sealed class CollectionUploadTests : IDisposable
         var op = await Store().PrepareAsync(Source);
         var server = new Server();
         server.Before = route => { if (route.EndsWith("/git/blobs", StringComparison.Ordinal)) File.WriteAllText(Path.Combine(Source, ".hidden"), "external"); };
-        await Assert.ThrowsAsync<RecoveryBlockedException>(() => new CollectionUploader(Store(), Connection(server)).UploadAsync(Request(op)));
+        await Assert.ThrowsAsync<RecoveryBlockedException>(() => new CollectionUploader(Store(), Connection(server), SyncStateStore()).UploadAsync(Request(op)));
         Assert.Equal("external", File.ReadAllText(Path.Combine(Source, ".hidden")));
         Assert.DoesNotContain(server.Writes, p => p.StartsWith("PATCH", StringComparison.Ordinal));
     }
@@ -303,9 +304,9 @@ public sealed class CollectionUploadTests : IDisposable
     {
         var op = await Store().PrepareAsync(Source);
         var server = new Server { LostResponse = true };
-        await Assert.ThrowsAsync<HttpRequestException>(() => new CollectionUploader(Store(), Connection(server)).UploadAsync(Request(op)));
+        await Assert.ThrowsAsync<HttpRequestException>(() => new CollectionUploader(Store(), Connection(server), SyncStateStore()).UploadAsync(Request(op)));
         await File.WriteAllTextAsync(Path.Combine(Source, ".hidden"), "new edit");
-        var result = await new CollectionUploader(Store(), Connection(server)).AssessRecoveryAsync(op.OperationId, Repository);
+        var result = await new CollectionUploader(Store(), Connection(server), SyncStateStore()).AssessRecoveryAsync(op.OperationId, Repository);
         Assert.Equal(UploadStatus.PublishedSourceChanged, result.Status);
         Assert.Equal("new edit", File.ReadAllText(Path.Combine(Source, ".hidden")));
         Assert.False(File.Exists(Path.Combine(Data, "local-sync-state.json")));
@@ -323,7 +324,7 @@ public sealed class CollectionUploadTests : IDisposable
     {
         var op = await Store().PrepareAsync(Source);
         var server = new Server();
-        await new CollectionUploader(Store(), Connection(server)).UploadAsync(Request(op));
+        await new CollectionUploader(Store(), Connection(server), SyncStateStore()).UploadAsync(Request(op));
         var path = Record(op, "candidate");
         var text = File.ReadAllText(path);
         if (fault == "duplicate") File.WriteAllText(path, text.Replace("{", "{\"SchemaVersion\":1,", StringComparison.Ordinal));
@@ -334,8 +335,8 @@ public sealed class CollectionUploadTests : IDisposable
         if (fault == "temporary") File.WriteAllText(path + ".tmp", "orphan");
         if (fault == "receipt") File.WriteAllText(Record(op, "published"), "{}");
         var writes = server.Writes.Count;
-        await Assert.ThrowsAsync<RecoveryBlockedException>(() => new CollectionUploader(Store(), Connection(server)).AssessRecoveryAsync(op.OperationId, Repository));
-        await Assert.ThrowsAsync<RecoveryBlockedException>(() => new CollectionUploader(Store(), Connection(server)).UploadAsync(Request(op)));
+        await Assert.ThrowsAsync<RecoveryBlockedException>(() => new CollectionUploader(Store(), Connection(server), SyncStateStore()).AssessRecoveryAsync(op.OperationId, Repository));
+        await Assert.ThrowsAsync<RecoveryBlockedException>(() => new CollectionUploader(Store(), Connection(server), SyncStateStore()).UploadAsync(Request(op)));
         Assert.Equal(writes, server.Writes.Count);
     }
     [Fact]
@@ -343,7 +344,7 @@ public sealed class CollectionUploadTests : IDisposable
     {
         var boundaries = new List<string>();
         var op = await Store().PrepareAsync(Source);
-        await new CollectionUploader(Store(b => { if (b.StartsWith("Upload:", StringComparison.Ordinal)) boundaries.Add(b); }), Connection(new Server())).UploadAsync(Request(op));
+        await new CollectionUploader(Store(b => { if (b.StartsWith("Upload:", StringComparison.Ordinal)) boundaries.Add(b); }), Connection(new Server()), SyncStateStore()).UploadAsync(Request(op));
         Assert.Equal(9, boundaries.Count);
         for (var stop = 0; stop < boundaries.Count; stop++)
         {
@@ -355,9 +356,9 @@ public sealed class CollectionUploadTests : IDisposable
             {
                 if (b.StartsWith("Upload:", StringComparison.Ordinal) && seen++ == stop) throw new Interruption();
             });
-            await Assert.ThrowsAsync<Interruption>(() => new CollectionUploader(interruptedStore, Connection(server)).UploadAsync(Request(prepared)));
+            await Assert.ThrowsAsync<Interruption>(() => new CollectionUploader(interruptedStore, Connection(server), SyncStateStore()).UploadAsync(Request(prepared)));
             var writes = server.Writes.Count;
-            var restarted = new CollectionUploader(fixture.Store(), Connection(server));
+            var restarted = new CollectionUploader(fixture.Store(), Connection(server), SyncStateStore());
             if (boundaries[stop].EndsWith("JournalTemporaryFlushed", StringComparison.Ordinal))
             {
                 for (var repeat = 0; repeat < 2; repeat++)
@@ -383,10 +384,10 @@ public sealed class CollectionUploadTests : IDisposable
         using var cancellation = new CancellationTokenSource();
         var store = Store(b => { if (b == "Upload:candidate.json:DirectoryFlushed") cancellation.Cancel(); });
         var server = new Server();
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => new CollectionUploader(store, Connection(server)).UploadAsync(Request(op), cancellation.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => new CollectionUploader(store, Connection(server), SyncStateStore()).UploadAsync(Request(op), cancellation.Token));
         Assert.True(File.Exists(Record(op, "candidate")));
         Assert.DoesNotContain(server.Writes, p => p.StartsWith("PATCH", StringComparison.Ordinal));
-        Assert.Equal(UploadStatus.NotPublished, (await new CollectionUploader(Store(), Connection(server)).AssessRecoveryAsync(op.OperationId, Repository)).Status);
+        Assert.Equal(UploadStatus.NotPublished, (await new CollectionUploader(Store(), Connection(server), SyncStateStore()).AssessRecoveryAsync(op.OperationId, Repository)).Status);
     }
 
     [Fact]
@@ -402,7 +403,7 @@ public sealed class CollectionUploadTests : IDisposable
         };
         var credentials = new Credentials();
         var connection = Connection(server, credentials);
-        var upload = new CollectionUploader(Store(), connection).UploadAsync(Request(op));
+        var upload = new CollectionUploader(Store(), connection, SyncStateStore()).UploadAsync(Request(op));
         await entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
         try
         {
@@ -444,7 +445,7 @@ public sealed class CollectionUploadTests : IDisposable
             var dir = fault == "source" ? Source : fault == "capture" ? op.CaptureDirectory : op.BackupDirectory;
             File.WriteAllText(Path.Combine(dir, ".hidden"), "changed");
         });
-        await Assert.ThrowsAnyAsync<Exception>(() => new CollectionUploader(store, Connection(server)).UploadAsync(Request(op)));
+        await Assert.ThrowsAnyAsync<Exception>(() => new CollectionUploader(store, Connection(server), SyncStateStore()).UploadAsync(Request(op)));
         Assert.DoesNotContain(server.Writes, p => p.StartsWith("PATCH", StringComparison.Ordinal));
     }
 
@@ -453,7 +454,7 @@ public sealed class CollectionUploadTests : IDisposable
     {
         var op = await Store().PrepareAsync(Source);
         var server = new Server { AfterPublish = () => File.WriteAllText(Path.Combine(Source, ".hidden"), "external edit") };
-        var result = await new CollectionUploader(Store(), Connection(server)).UploadAsync(Request(op));
+        var result = await new CollectionUploader(Store(), Connection(server), SyncStateStore()).UploadAsync(Request(op));
         Assert.Equal(UploadStatus.PublishedSourceChanged, result.Status);
         Assert.Equal("external edit", File.ReadAllText(Path.Combine(Source, ".hidden")));
         Assert.True(File.Exists(Record(op, "published")));
@@ -464,13 +465,13 @@ public sealed class CollectionUploadTests : IDisposable
     {
         var op = await Store().PrepareAsync(Source);
         var server = new Server { LostResponse = true };
-        await Assert.ThrowsAsync<HttpRequestException>(() => new CollectionUploader(Store(), Connection(server)).UploadAsync(Request(op)));
+        await Assert.ThrowsAsync<HttpRequestException>(() => new CollectionUploader(Store(), Connection(server), SyncStateStore()).UploadAsync(Request(op)));
         var candidate = server.Head!;
         var newer = new string('c', 40);
         server.Commits[newer] = (server.Commits[candidate].Tree, candidate);
         server.Head = newer;
         var writes = server.Writes.Count;
-        Assert.Equal(UploadStatus.ConcurrentUpdate, (await new CollectionUploader(Store(), Connection(server)).AssessRecoveryAsync(op.OperationId, Repository)).Status);
+        Assert.Equal(UploadStatus.ConcurrentUpdate, (await new CollectionUploader(Store(), Connection(server), SyncStateStore()).AssessRecoveryAsync(op.OperationId, Repository)).Status);
         Assert.Equal(writes, server.Writes.Count);
         Assert.False(File.Exists(Record(op, "published")));
     }
@@ -480,9 +481,9 @@ public sealed class CollectionUploadTests : IDisposable
     {
         var op = await Store().PrepareAsync(Source);
         var server = new Server();
-        await new CollectionUploader(Store(), Connection(server)).UploadAsync(Request(op));
+        await new CollectionUploader(Store(), Connection(server), SyncStateStore()).UploadAsync(Request(op));
         server.Head = Parent;
-        Assert.Equal(UploadStatus.ConcurrentUpdate, (await new CollectionUploader(Store(), Connection(server)).AssessRecoveryAsync(op.OperationId, Repository)).Status);
+        Assert.Equal(UploadStatus.ConcurrentUpdate, (await new CollectionUploader(Store(), Connection(server), SyncStateStore()).AssessRecoveryAsync(op.OperationId, Repository)).Status);
         Assert.Single(server.Writes, p => p.StartsWith("PATCH", StringComparison.Ordinal));
     }
 
@@ -493,11 +494,11 @@ public sealed class CollectionUploadTests : IDisposable
     {
         var op = await Store().PrepareAsync(Source);
         var server = new Server { LostResponse = true };
-        await Assert.ThrowsAsync<HttpRequestException>(() => new CollectionUploader(Store(), Connection(server)).UploadAsync(Request(op)));
+        await Assert.ThrowsAsync<HttpRequestException>(() => new CollectionUploader(Store(), Connection(server), SyncStateStore()).UploadAsync(Request(op)));
         var repository = fault == "branch" ? Repository with { DefaultBranch = "other" } : Repository with { Id = 2 };
         var credentials = new Credentials { Value = JsonSerializer.Serialize(new ConnectionCredentials { ClientId = "client", AccessToken = "token", Repository = repository }) };
         var writes = server.Writes.Count;
-        await Assert.ThrowsAsync<RecoveryBlockedException>(() => new CollectionUploader(Store(), Connection(server, credentials)).AssessRecoveryAsync(op.OperationId, repository));
+        await Assert.ThrowsAsync<RecoveryBlockedException>(() => new CollectionUploader(Store(), Connection(server, credentials), SyncStateStore()).AssessRecoveryAsync(op.OperationId, repository));
         Assert.Equal(writes, server.Writes.Count);
     }
 
@@ -508,8 +509,96 @@ public sealed class CollectionUploadTests : IDisposable
         Directory.CreateDirectory(Source);
         var op = await Store().PrepareAsync(Source);
         var server = new Server();
-        await Assert.ThrowsAsync<RecoveryBlockedException>(() => new CollectionUploader(Store(), Connection(server)).UploadAsync(Request(op)));
+        await Assert.ThrowsAsync<RecoveryBlockedException>(() => new CollectionUploader(Store(), Connection(server), SyncStateStore()).UploadAsync(Request(op)));
         Assert.Empty(server.Writes);
+    }
+
+    [Fact]
+    public async Task SuccessfulUploadPersistsSyncStateMatchingPublicationRecords()
+    {
+        var op = await Store().PrepareAsync(Source);
+        var server = new Server();
+        var uploader = new CollectionUploader(Store(), Connection(server), SyncStateStore());
+        var result = await uploader.UploadAsync(Request(op));
+        Assert.Equal(UploadStatus.Published, result.Status);
+        Assert.NotNull(result.CandidateCommit);
+        var syncStatePath = Path.Combine(Data, "local-sync-state.json");
+        Assert.True(File.Exists(syncStatePath));
+        var store = SyncStateStore();
+        var (state, notice) = await store.LoadAsync();
+        Assert.NotNull(state);
+        Assert.Null(notice);
+        Assert.Equal(1, state.SchemaVersion);
+        Assert.Equal(Repository.FullName, state.RepositoryIdentity);
+        Assert.Equal(Repository.DefaultBranch, state.Branch);
+        Assert.Equal(result.CandidateCommit, state.LastSynchronizedCommit);
+        Assert.Equal(op.SourceRoot, state.LocalRootPath);
+        Assert.Equal(op.Files.Count, state.Files.Count);
+        Assert.Equal(op.CollectionFingerprint, state.CollectionFingerprint);
+        Assert.NotEqual(default, state.SynchronizedAt);
+    }
+
+    [Fact]
+    public async Task SyncStateMatchesCandidateCommitFromPublishedReceipt()
+    {
+        var op = await Store().PrepareAsync(Source);
+        var server = new Server();
+        var uploader = new CollectionUploader(Store(), Connection(server), SyncStateStore());
+        var result = await uploader.UploadAsync(Request(op));
+        Assert.Equal(UploadStatus.Published, result.Status);
+        var syncStatePath = Path.Combine(Data, "local-sync-state.json");
+        var json = JsonNode.Parse(await File.ReadAllTextAsync(syncStatePath))!.AsObject();
+        Assert.Equal(result.CandidateCommit, json["LastSynchronizedCommit"]!.GetValue<string>());
+        Assert.Equal(Repository.FullName, json["RepositoryIdentity"]!.GetValue<string>());
+        Assert.Equal(Repository.DefaultBranch, json["Branch"]!.GetValue<string>());
+        Assert.Equal(op.SourceRoot, json["LocalRootPath"]!.GetValue<string>());
+        Assert.Equal(op.CollectionFingerprint, json["CollectionFingerprint"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public async Task FailedUploadDoesNotPersistSyncState()
+    {
+        var op = await Store().PrepareAsync(Source);
+        var server = new Server { LostResponse = true };
+        await Assert.ThrowsAnyAsync<Exception>(() => new CollectionUploader(Store(), Connection(server), SyncStateStore()).UploadAsync(Request(op)));
+        Assert.False(File.Exists(Path.Combine(Data, "local-sync-state.json")));
+    }
+
+    [Fact]
+    public async Task SyncStateIsVersionedAndFollowsStoreConventions()
+    {
+        var op = await Store().PrepareAsync(Source);
+        var server = new Server();
+        var uploader = new CollectionUploader(Store(), Connection(server), SyncStateStore());
+        await uploader.UploadAsync(Request(op));
+        var syncStatePath = Path.Combine(Data, "local-sync-state.json");
+        var bytes = await File.ReadAllBytesAsync(syncStatePath);
+        using var document = JsonDocument.Parse(bytes);
+        Assert.Equal(1, document.RootElement.GetProperty("SchemaVersion").GetInt32());
+        Assert.True(document.RootElement.TryGetProperty("RepositoryIdentity", out _));
+        Assert.True(document.RootElement.TryGetProperty("Branch", out _));
+        Assert.True(document.RootElement.TryGetProperty("LastSynchronizedCommit", out _));
+        Assert.True(document.RootElement.TryGetProperty("LocalRootPath", out _));
+        Assert.True(document.RootElement.TryGetProperty("Files", out _));
+        Assert.True(document.RootElement.TryGetProperty("SynchronizedAt", out _));
+        Assert.True(document.RootElement.TryGetProperty("CollectionFingerprint", out _));
+    }
+
+    [Fact]
+    public async Task AssessmentDoesNotWriteSyncState()
+    {
+        var op = await Store().PrepareAsync(Source);
+        var server = new Server();
+        var uploader = new CollectionUploader(Store(), Connection(server), SyncStateStore());
+        await uploader.UploadAsync(Request(op));
+        var assessmentStore = SyncStateStore();
+        var result = await assessmentStore.LoadAsync();
+        Assert.NotNull(result.State);
+        var uploader2 = new CollectionUploader(Store(), Connection(server), assessmentStore);
+        Assert.Equal(UploadStatus.Published, (await uploader2.AssessRecoveryAsync(op.OperationId, Repository)).Status);
+        var (stateAfterAssessment, _) = await assessmentStore.LoadAsync();
+        Assert.NotNull(stateAfterAssessment);
+        Assert.Equal(result.State!.LastSynchronizedCommit, stateAfterAssessment.LastSynchronizedCommit);
     }
 
 }
