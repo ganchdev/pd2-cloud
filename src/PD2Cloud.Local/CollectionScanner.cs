@@ -115,7 +115,10 @@ public sealed class CollectionScanner(IFileFingerprintReader? reader = null, str
                             continue;
                         }
                         var isDirectory = item is DirectoryInfo;
-                        entries.Add(new(relative, item.FullName, isDirectory, item is FileInfo file ? file.Length : 0, item.LastWriteTimeUtc));
+                        // Directory timestamps are refreshed lazily by some filesystems (e.g. NTFS) and cannot be
+                        // compared reliably across passes; membership changes are already caught by the entry set.
+                        entries.Add(new(relative, item.FullName, isDirectory, item is FileInfo file ? file.Length : 0,
+                            item is FileInfo fileInfo ? fileInfo.LastWriteTimeUtc : default));
                         if (item is DirectoryInfo child) pending.Push((child, relative + "/"));
                     }
                     catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)

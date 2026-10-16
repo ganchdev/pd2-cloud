@@ -9,13 +9,14 @@ namespace PD2Cloud.Tests;
 public sealed class LocalSyncStateStoreTests : IDisposable
 {
     private readonly string root = Path.Combine(OperatingSystem.IsMacOS() ? "/private/tmp" : Path.GetTempPath(), "pd2-syncstate-" + Guid.NewGuid().ToString("N"));
+    private static readonly string SaveRoot = Path.Combine(Path.GetTempPath(), "pd2-saves");
     private string Data => Path.Combine(root, "app");
     private string StatePath => Path.Combine(Data, "local-sync-state.json");
     public LocalSyncStateStoreTests() => Directory.CreateDirectory(Data);
     public void Dispose() => Directory.Delete(root, true);
     private LocalSyncStateStore Store() => new(Data);
     private static LocalSyncState ValidState() => new(1, "player/saves", "main",
-        new string('a', 40), "/saves",
+        new string('a', 40), SaveRoot,
         [new FileEntry("save.dat", 100, new string('b', 64))],
         DateTimeOffset.UnixEpoch,
         CollectionInventory.Fingerprint([new FileEntry("save.dat", 100, new string('b', 64))]));
@@ -55,7 +56,7 @@ public sealed class LocalSyncStateStoreTests : IDisposable
         Assert.Equal("player/saves", document["RepositoryIdentity"]!.GetValue<string>());
         Assert.Equal("main", document["Branch"]!.GetValue<string>());
         Assert.Equal(new string('a', 40), document["LastSynchronizedCommit"]!.GetValue<string>());
-        Assert.Equal("/saves", document["LocalRootPath"]!.GetValue<string>());
+        Assert.Equal(SaveRoot, document["LocalRootPath"]!.GetValue<string>());
         Assert.NotNull(document["Files"]);
         Assert.NotNull(document["SynchronizedAt"]);
         Assert.NotNull(document["CollectionFingerprint"]);
