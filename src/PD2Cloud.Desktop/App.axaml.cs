@@ -22,7 +22,7 @@ public partial class App : Application
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             var window = new MainWindow();
-            var clientId = Environment.GetEnvironmentVariable("PD2CLOUD_GITHUB_CLIENT_ID") ?? "";
+            var clientId = ClientId.Resolve();
             var connection = new GitHubConnection(new GitHubApi(GitHubApi.CreateHttpClient(), clientId), new NativeCredentialStore(clientId));
             var github = new GitHubConnectionViewModel(connection);
             window.DataContext = new SetupWorkflowViewModel(new MainWindowViewModel(new CollectionScanner(), new NativeFolderPicker(window.StorageProvider), new FolderSettingsStore(), github), new SyncOperations(connection));

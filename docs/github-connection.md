@@ -33,7 +33,7 @@ Task 5 implementation contract, updated 2026-10-16. The [setup UX contract](gith
    PD2CLOUD_GITHUB_CLIENT_ID=your-public-GitHub-App-client-ID
    ```
 
-   This is the only runtime GitHub setting. Do not add `PD2CLOUD_GITHUB_CLIENT_SECRET`, a private key, PAT or access/refresh token. The planned desktop synchronization flow also uses user tokens, so it does not require a client secret. Tokens are obtained through authorization and stored in the native credential facility.
+   This is the only runtime GitHub setting. Do not add `PD2CLOUD_GITHUB_CLIENT_SECRET`, a private key, PAT or access/refresh token. Release builds embed this public value from the `PD2CLOUD_GITHUB_CLIENT_ID` repository variable, so a downloaded artifact needs no setup; the environment variable overrides it for development. The planned desktop synchronization flow also uses user tokens, so it does not require a client secret. Tokens are obtained through authorization and stored in the native credential facility.
 
 5. From the project root, run `mise run run` (restart if already running). Choose **Get Started → Connect with GitHub**. Your default browser opens GitHub; use **Copy Code** to enter the displayed code and approve access. Back in PD2 Cloud, choose your private repository and click **Continue**, then inspect your local save folder and continue to the dashboard. If it is missing, check the installation's repository access and permissions, then click **Refresh Repositories**.
 
@@ -41,7 +41,7 @@ App installation (step 3) and user authorization (step 5) are both required. Con
 
 `mise.toml` loads the optional project-root `.local.env` through `[env]` / `_.file = ".local.env"`, using [mise's dotenv support](https://mise.jdx.dev/environments/#env-file). The actual local file is ignored by Git; the tracked `.local.env.example` contains an empty value and no personal Client ID. Missing/blank configuration keeps local inspection available and GitHub Connect disabled. The existing local Client ID was moved out of tracked mise configuration without changing its value. The Client ID remains public metadata; this separation lets each developer use their own registration. Do not store client secrets, private keys, PATs or access/refresh tokens in this file.
 
-Launches outside mise need `PD2CLOUD_GITHUB_CLIENT_ID` in their environment; the desktop only reads that environment variable and does not load dotenv files itself. Configuration alone does not establish successful live authentication or validate the app registration/installation.
+Launches outside mise need `PD2CLOUD_GITHUB_CLIENT_ID` in their environment. The desktop reads that environment variable first and falls back to a public client ID embedded at build time, which is how released artifacts work without configuration; it does not load dotenv files itself. Configuration alone does not establish successful live authentication or validate the app registration/installation.
 
 Without a client ID, Connect is disabled with a setup notice; folder selection/inspection still work. With configuration, opening the window makes one connection restoration/metadata request sequence alongside independent local startup. The shared workflow also checks cloud contents after restoring a valid selection. There is no periodic refresh or synchronization.
 

@@ -5,7 +5,21 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+    <!--
+      The GitHub App client ID is public metadata, not a secret. Release
+      builds inject it so a downloaded artifact works without environment
+      configuration. It stays empty for local builds, where the
+      PD2CLOUD_GITHUB_CLIENT_ID environment variable takes precedence.
+    -->
+    <DefaultGitHubClientId Condition="'$(DefaultGitHubClientId)' == ''"></DefaultGitHubClientId>
   </PropertyGroup>
+
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>PD2Cloud.DefaultGitHubClientId</_Parameter1>
+      <_Parameter2>$(DefaultGitHubClientId)</_Parameter2>
+    </AssemblyAttribute>
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="../PD2Cloud.Remote/PD2Cloud.Remote.csproj" />

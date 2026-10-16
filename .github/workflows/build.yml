@@ -64,6 +64,10 @@ jobs:
           RAW_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || '1.0.0' }}
         run: echo "value=${RAW_VERSION#v}" >> "$GITHUB_OUTPUT"
       - name: Publish
+        env:
+          # Public metadata, supplied as a repository variable so released builds
+          # work without environment configuration on the target machine.
+          DEFAULT_GITHUB_CLIENT_ID: ${{ vars.PD2CLOUD_GITHUB_CLIENT_ID }}
         run: >-
           dotnet publish src/PD2Cloud.Desktop/PD2Cloud.Desktop.csproj
           --configuration Release
@@ -73,6 +77,7 @@ jobs:
           -p:DebugType=none
           -p:IncludeNativeLibrariesForSelfExtract=true
           -p:Version=${{ steps.version.outputs.value }}
+          -p:DefaultGitHubClientId=${{ env.DEFAULT_GITHUB_CLIENT_ID }}
           --output publish/${{ matrix.rid }}
 
       # macOS: wrap the bare executable in a .app bundle so Finder treats it as
