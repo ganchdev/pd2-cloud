@@ -13,3 +13,6 @@ mise.local.toml
 .env
 .env.*
 PD2-CLOUD-HANDOFF.md
+
+# Developer-specific GitHub App configuration
+/.local.env

@@ -25,11 +25,10 @@ Task 5 implementation contract, 2026-10-15. GitHub access is independent of loca
 
 3. Create a separate **private repository** for storage, initially using disposable test data. Install the GitHub App with access to that repository using the [repository installation and permissions steps](#install-the-app-on-your-repository-and-grant-permissions) below. The public `ganchdev/pd2-cloud` source repository is not storage. Organization policies may require approval.
 
-4. `mise.toml` already supplies the project's public Client ID for development runs. If using your own registration, copy its **Client ID** (not its numeric App ID) from the App's settings. In the project root, create or edit the ignored `mise.local.toml` file. Add the value under its existing `[env]` section, or create that section if absent:
+4. Copy your GitHub App's **Client ID** (not its numeric App ID) from its settings. In the project root, copy `.local.env.example` to `.local.env` if you do not already have a local file, then edit its value:
 
-   ```toml
-   [env]
-   PD2CLOUD_GITHUB_CLIENT_ID = "your-public-GitHub-App-client-ID"
+   ```dotenv
+   PD2CLOUD_GITHUB_CLIENT_ID=your-public-GitHub-App-client-ID
    ```
 
    This is the only runtime GitHub setting. Do not add `PD2CLOUD_GITHUB_CLIENT_SECRET`, a private key, PAT or access/refresh token. The planned desktop synchronization flow also uses user tokens, so it does not require a client secret. Tokens are obtained through authorization and stored in the native credential facility.
@@ -38,7 +37,9 @@ Task 5 implementation contract, 2026-10-15. GitHub access is independent of loca
 
 App installation (step 3) and user authorization (step 5) are both required. Connection currently saves account credentials and repository selection only; it does not synchronize files or initialize repository contents. Native secure storage must be available; platform requirements are listed below.
 
-The user supplied a public GitHub App client ID in tracked `mise.toml` after initial implementation. This configures development runs; it does not establish successful live authentication or validate the app registration/installation. Launches outside mise need `PD2CLOUD_GITHUB_CLIENT_ID` in their environment. No client secret or private key is configured.
+`mise.toml` loads the optional project-root `.local.env` through `[env]` / `_.file = ".local.env"`, using [mise's dotenv support](https://mise.jdx.dev/environments/#env-file). The actual local file is ignored by Git; the tracked `.local.env.example` contains an empty value and no personal Client ID. Missing/blank configuration keeps local inspection available and GitHub Connect disabled. The existing local Client ID was moved out of tracked mise configuration without changing its value. The Client ID remains public metadata; this separation lets each developer use their own registration. Do not store client secrets, private keys, PATs or access/refresh tokens in this file.
+
+Launches outside mise need `PD2CLOUD_GITHUB_CLIENT_ID` in their environment; the desktop only reads that environment variable and does not load dotenv files itself. Configuration alone does not establish successful live authentication or validate the app registration/installation.
 
 Without a client ID, Connect is disabled with a setup notice; folder selection/inspection still work. With configuration, opening the window makes one connection restoration/metadata request sequence alongside independent local startup. There is no periodic refresh or synchronization.
 
@@ -91,7 +92,9 @@ Protocol references: [GitHub App user/device authorization](https://docs.github.
 
 ## Verification and remaining acceptance gates
 
-Final macOS validation: `mise run test` passed all 127 cases (30 new); `mise run build` passed with zero warnings/errors; `mise run format:check` and `git diff --check` passed. Initial NuGet vulnerability-cache warnings persisted even with escalation. A forced restore using `NUGET_HTTP_CACHE_PATH=/private/tmp/pd2-task5-nuget-cache` cleared them; subsequent standard mise commands passed without overrides. No package, project audit setting or telemetry setting was changed.
+Task-5 macOS validation: `mise run test` passed all 127 cases (30 new); `mise run build` passed with zero warnings/errors; `mise run format:check` and `git diff --check` passed. Initial NuGet vulnerability-cache warnings persisted even with escalation. A forced restore using `NUGET_HTTP_CACHE_PATH=/private/tmp/pd2-task5-nuget-cache` cleared them; subsequent standard mise commands passed without overrides. No package, project audit setting or telemetry setting was changed.
+
+The local dotenv follow-up also passed all 127 tests, Release build (zero warnings/errors), formatting and diff checks. Direct mise checks verified existing-value preservation, missing/blank/custom files, personal-file exclusion and template inclusion. No runtime/UI code changed for this follow-up.
 
 Behavior tests use scripted HTTP, injected credential stores and an advancing clock. They cover polling/slowdown, cancellation/expiry/denial, malformed tokens, safe errors, storage failure, serialized concurrent refresh, refresh expiry, pagination, repository privacy/write/install filters, revalidation before selection, restart selection, stale selection, disconnect failure/recovery, UI state/disposal and inspection while GitHub is stalled. They are not live authentication evidence.
 
