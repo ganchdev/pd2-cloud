@@ -5,7 +5,7 @@ using PD2Cloud.Remote;
 
 namespace PD2Cloud.Desktop.ViewModels;
 
-public enum SetupScreen { Loading, Welcome, Connect, Authorize, Repository, Folder, Dashboard, Settings, UploadReview, Recovery }
+public enum SetupScreen { Loading, Welcome, Connect, Authorize, Repository, Folder, Dashboard, Files, Settings, UploadReview, Recovery }
 public enum SettingsSection { General, GitHub, Saves }
 public enum ConnectionJourney { Onboarding, Connect, Reconnect, ChangeRepository }
 
@@ -47,17 +47,97 @@ public sealed class SetupWorkflowViewModel : INotifyPropertyChanged, IDisposable
     public bool IsSettings => Screen == SetupScreen.Settings;
     public bool IsUploadReview => Screen == SetupScreen.UploadReview;
     public bool IsRecovery => Screen == SetupScreen.Recovery;
+    public bool IsFiles => Screen == SetupScreen.Files;
     public bool IsGeneralSettings => IsSettings && Section == SettingsSection.General;
     public bool IsGitHubSettings => IsSettings && Section == SettingsSection.GitHub;
     public bool IsSavesSettings => IsSettings && Section == SettingsSection.Saves;
-    public bool ShowFolder => IsFolder || IsDashboard || IsSavesSettings;
+    public bool ShowFolder => IsFolder || IsDashboard || IsFiles || IsSavesSettings;
     public bool ShowCloud => ShowFolder || IsGitHubSettings || IsRepository;
     public bool ShowFolderEditor => IsFolder || IsSavesSettings || Local.Manifest?.IsValid != true;
+    public bool ShowInspectAction => Local.HasFolder && ShowFolderEditor;
     public bool ShowGitHubNotice => !GitHub.LastOperationSucceeded || GitHub.IsBusy;
     public bool CanContinueFolder => Local.Manifest?.IsValid == true && !Local.IsBusy && GitHub.SelectedRepository is not null;
     public bool ShowAuthorizationRetry => IsAuthorize && !GitHub.IsBusy;
     public bool CanUseLocalOnly => !GitHub.IsConfigured;
     public bool ShowDisconnected => !GitHub.IsConnected;
+
+    // Read-only file browser, opened from the dashboard tiles and Saves settings.
+    public FileScope FilesScope { get; private set; } = FileScope.Local;
+    public bool IsLocalFiles => IsFiles && FilesScope == FileScope.Local;
+    public bool IsCloudFiles => IsFiles && FilesScope == FileScope.Cloud;
+    public bool CanOpenLocalFiles => Local.HasFolder;
+    public bool CanOpenCloudFiles => Cloud.Result?.Collection?.Manifest is not null;
+    public IReadOnlyList<FileEntry> CloudFiles => Cloud.Result?.Collection?.Manifest?.Files ?? [];
+    public string FilesTitle => IsCloudFiles ? "Cloud Collection" : "Save Folder";
+    public string FilesSubtitle => IsCloudFiles
+        ? "These are the files in the verified cloud collection at the checked revision. PD2 Cloud only reads them."
+        : "These are the files in your PD2 save folder. PD2 Cloud treats them as save data and does not modify them.";
+    public string FilesPath => IsCloudFiles
+        ? GitHub.SelectedRepository?.FullName ?? "No verified repository"
+        : Local.SelectedPath ?? "No save folder selected";
+    public bool HasFilesPath => IsCloudFiles ? GitHub.SelectedRepository is not null : Local.SelectedPath is not null;
+    public string FilesInspectionLine => IsCloudFiles
+        ? (Cloud.Revision.Length > 0 ? Cloud.Revision : "Cloud files have not been checked yet.")
+        : Local.LastInspection;
+    public bool HasFilesInspectionLine => FilesInspectionLine.Length > 0;
+    public string? FilesFingerprint => IsCloudFiles ? Cloud.Result?.Collection?.Manifest?.CollectionFingerprint : Local.CollectionFingerprint;
+    public bool HasFilesFingerprint => FilesFingerprint is not null;
+    public string FilesEmptyText => IsCloudFiles
+        ? "No verified cloud files are available. Check cloud files from Settings → GitHub, then refresh."
+        : "This folder has no files yet. Add your Project Diablo 2 saves here, then run inspection again.";
+    public IReadOnlyList<ValidationIssue> FilesIssues => IsCloudFiles ? [] : Local.Issues;
+    public bool HasFilesIssues => FilesIssues.Count > 0;
+
+    private object? fileGroupKey;
+    private IReadOnlyList<FileGroupHeader> fileGroups = [];
+    public IReadOnlyList<FileGroupHeader> FileGroups
+    {
+        get
+        {
+            var key = IsCloudFiles ? (object?)Cloud.Result : Local.Manifest;
+            if (ReferenceEquals(key, fileGroupKey)) return fileGroups;
+            fileGroupKey = key;
+            fileGroups = IsCloudFiles ? FileBrowser.Group(CloudFiles, null) : FileBrowser.Group(Local.Files, Local.SelectedPath);
+            return fileGroups;
+        }
+    }
+    public bool HasFiles => FileGroups.Count > 0;
+    public bool IsFilesEmpty => IsFiles && !HasFiles;
+
+    private object? localGroupKey;
+    private IReadOnlyList<FileGroupHeader> localFileGroups = [];
+    public IReadOnlyList<FileGroupHeader> LocalFileGroups
+    {
+        get
+        {
+            if (ReferenceEquals(Local.Manifest, localGroupKey)) return localFileGroups;
+            localGroupKey = Local.Manifest;
+            localFileGroups = FileBrowser.Group(Local.Files, Local.SelectedPath);
+            return localFileGroups;
+        }
+    }
+    public bool HasLocalFiles => LocalFileGroups.Count > 0;
+    public IReadOnlyList<FileRow> LocalRows => LocalFileGroups.SelectMany(group => group.Rows).ToArray();
+    public IReadOnlyList<FileGroupHeader> ReviewFileGroups => FileBrowser.Group(Sync.ReviewFiles, null);
+
+    // Shell chrome state.
+    public bool IsSavesNavActive => IsDashboard || IsFiles || IsUploadReview || IsRecovery;
+    public bool CanNavigateSaves => Local.SetupCompleted || IsDashboard || IsFiles || IsUploadReview || IsRecovery;
+    public bool ShowTitleBarSettings => IsDashboard;
+    public bool ShowTitleBarBack => IsFiles || IsSettings || IsUploadReview || IsRecovery;
+    public bool ShowSidebar => true;
+
+    public string BaselineLine => Sync.Baseline is { } baseline
+        ? $"Last published revision {ShortCommit(baseline.LastSynchronizedCommit)} on {baseline.SynchronizedAt.ToLocalTime():dd/MM/yyyy HH:mm}"
+        : "";
+    public bool HasBaselineLine => BaselineLine.Length > 0;
+    public bool IsSyncHealthy => Sync.HasBaseline && Sync.BaselineAncestryValid;
+    public string CloudFileSummary => FileBrowser.CountText(CloudFiles.Count);
+    public string LocalFileSummary => FileBrowser.CountText(Local.Files.Count);
+    public bool HasCloudNotice => Cloud.Notice.Length > 0;
+    public string CloudRevisionLine => Cloud.Revision.Length > 0 ? Cloud.Revision : "";
+    public bool HasCloudRevisionLine => CloudRevisionLine.Length > 0;
+    private static string ShortCommit(string commit) => string.IsNullOrEmpty(commit) ? "" : commit[..Math.Min(7, commit.Length)];
     public string DashboardConnectionStatus => GitHub.IsConnected ? "GitHub Connected" : "GitHub Not Connected";
     public string SyncStatus => Sync.HasBaseline
         ? Sync.BaselineAncestryValid ? "Published — not a verified synchronization" : "Uploaded revision no longer in the remote history"
@@ -157,6 +237,8 @@ public sealed class SetupWorkflowViewModel : INotifyPropertyChanged, IDisposable
         Navigate(GitHub.IsConnected ? SetupScreen.Repository : SetupScreen.Connect);
     }
     public void OpenSettings(SettingsSection section = SettingsSection.GitHub) { Section = section; Navigate(SetupScreen.Settings); }
+    public void OpenLocalFiles() { if (!CanOpenLocalFiles) return; FilesScope = FileScope.Local; Navigate(SetupScreen.Files); }
+    public void OpenCloudFiles() { if (!CanOpenCloudFiles) return; FilesScope = FileScope.Cloud; Navigate(SetupScreen.Files); }
     public void Dashboard() { Sync.CloseReview(); Navigate(SetupScreen.Dashboard); }
     public void BeginConnection(bool reconnect = false)
     {
@@ -228,6 +310,7 @@ public sealed class SetupWorkflowViewModel : INotifyPropertyChanged, IDisposable
     {
         if (IsUploadReview) { if (Sync.IsBusy) { Sync.Cancel(); return; } Dashboard(); return; }
         if (IsRecovery) { if (Sync.IsBusy) { Sync.Cancel(); return; } Dashboard(); return; }
+        if (IsFiles) { Dashboard(); return; }
         if (GitHub.IsBusy) { GitHub.Cancel(); return; }
         if (Journey != ConnectionJourney.Onboarding) { OpenSettings(); return; }
         if (IsAuthorize)

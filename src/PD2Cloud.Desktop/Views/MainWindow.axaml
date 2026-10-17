@@ -4,328 +4,855 @@
         xmlns:core="using:PD2Cloud.Core"
         xmlns:github="using:PD2Cloud.GitHub"
         x:Class="PD2Cloud.Desktop.Views.MainWindow" x:DataType="vm:SetupWorkflowViewModel"
-        Title="PD2 Cloud" Width="880" Height="760" MinWidth="560" MinHeight="480"
-        WindowStartupLocation="CenterScreen" Background="#14181F">
-    <Window.Styles>
-        <Style Selector="TextBlock"><Setter Property="TextWrapping" Value="Wrap" /></Style>
-        <Style Selector="TextBlock.title"><Setter Property="FontSize" Value="30" /><Setter Property="FontWeight" Value="SemiBold" /></Style>
-        <Style Selector="TextBlock.muted"><Setter Property="Foreground" Value="#ABB6C5" /></Style>
-        <Style Selector="Button"><Setter Property="Padding" Value="16,11" /><Setter Property="CornerRadius" Value="6" /></Style>
-        <Style Selector="ToggleButton.navigation"><Setter Property="Padding" Value="16,11" /><Setter Property="CornerRadius" Value="6" /></Style>
-        <Style Selector="ToggleButton.navigation:checked"><Setter Property="Background" Value="#4279D4" /><Setter Property="Foreground" Value="White" /></Style>
-        <Style Selector="Button.primary"><Setter Property="Background" Value="#4279D4" /><Setter Property="Foreground" Value="White" /></Style>
-        <Style Selector="Border.card"><Setter Property="Background" Value="#1E2530" /><Setter Property="CornerRadius" Value="10" /><Setter Property="Padding" Value="22" /></Style>
-    </Window.Styles>
-    <Grid RowDefinitions="Auto,*">
-        <Border BorderBrush="#303947" BorderThickness="0,0,0,1" Padding="28,18">
-            <Grid ColumnDefinitions="*,Auto">
-                <TextBlock Text="PD2 Cloud" FontSize="21" FontWeight="SemiBold" VerticalAlignment="Center" />
-                <Button Grid.Column="1" Content="Settings" Click="Settings_Click" IsVisible="{Binding IsDashboard}" />
-                <Button Grid.Column="1" Content="Back to Saves" Click="Dashboard_Click" IsVisible="{Binding IsSettings}" />
+        Title="PD2 Cloud" Width="1000" Height="800" MinWidth="900" MinHeight="620"
+        WindowStartupLocation="CenterScreen" Background="{StaticResource PageBg}">
+
+    <Grid RowDefinitions="48,*">
+        <!-- Window chrome: native traffic lights / caption buttons sit inside this extended bar. -->
+        <Border Grid.Row="0" Background="{StaticResource ChromeBg}" BorderBrush="{StaticResource StrokeSoft}"
+                BorderThickness="0,0,0,1" PointerPressed="TitleBar_PointerPressed">
+            <Grid ColumnDefinitions="Auto,*,Auto" Margin="14,0">
+                <StackPanel x:Name="TitleBarLeft" Orientation="Horizontal" Spacing="9" VerticalAlignment="Center">
+                    <TextBlock Text="PD2 Cloud" FontSize="13.5" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    <Border Background="{StaticResource ControlBg}" CornerRadius="4" Padding="6,2" VerticalAlignment="Center">
+                        <TextBlock Text="Beta" FontSize="10.5" Foreground="{StaticResource TextMuted}" VerticalAlignment="Center" />
+                    </Border>
+                </StackPanel>
+                <StackPanel x:Name="TitleBarActions" Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <Button Classes="chrome" Click="TitleBarSettings_Click" IsVisible="{Binding ShowTitleBarSettings}">
+                        <StackPanel Orientation="Horizontal" Spacing="7">
+                            <Path Classes="iconSmall" Data="{StaticResource IconSettings}" />
+                            <TextBlock Text="Settings" />
+                        </StackPanel>
+                    </Button>
+                    <Button Classes="chrome" Click="Dashboard_Click" IsVisible="{Binding ShowTitleBarBack}">
+                        <StackPanel Orientation="Horizontal" Spacing="7">
+                            <Path Classes="iconSmall" Data="{StaticResource IconArrowLeft}" />
+                            <TextBlock Text="Back to Saves" />
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
             </Grid>
         </Border>
-        <ScrollViewer x:Name="PageScroll" Grid.Row="1" HorizontalScrollBarVisibility="Disabled">
-            <StackPanel Margin="32" Spacing="22" MaxWidth="760" HorizontalAlignment="Stretch">
-                <StackPanel IsVisible="{Binding IsLoading}" Spacing="16">
-                    <TextBlock Text="Opening your collection…" Classes="title" />
-                    <ProgressBar IsIndeterminate="True" Height="3" />
-                </StackPanel>
-                <StackPanel IsVisible="{Binding IsWelcome}" Spacing="24" Margin="0,44,0,0">
-                    <TextBlock Text="Your saves. Every device." Classes="title" FontSize="36" />
-                    <TextBlock Text="Keep your Project Diablo 2 saves in sync across your devices." FontSize="19" />
-                    <Border Classes="card">
-                        <StackPanel Spacing="12">
-                            <TextBlock Text="Your own private save collection" FontSize="19" FontWeight="SemiBold" />
-                            <TextBlock Text="PD2 Cloud uses a private GitHub repository to securely store your saves. Connect your account, choose a repository, and select your local save folder." Classes="muted" />
-                            <TextBlock Text="Synchronization is coming next. Setup keeps your files untouched." Classes="muted" />
+
+        <Grid Grid.Row="1" ColumnDefinitions="Auto,*">
+            <!-- Sidebar -->
+            <Border Grid.Column="0" Width="194" Background="{StaticResource SidebarBg}" BorderBrush="{StaticResource StrokeSoft}"
+                    BorderThickness="0,0,1,0" Padding="12,16">
+                <StackPanel Spacing="3">
+                    <ToggleButton Classes="nav" IsChecked="{Binding IsSavesNavActive, Mode=OneWay}"
+                                  IsEnabled="{Binding CanNavigateSaves}" Click="SavesNav_Click">
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <PathIcon Classes="navIcon" Data="{StaticResource IconHome}" />
+                            <TextBlock Text="Saves" VerticalAlignment="Center" />
                         </StackPanel>
-                    </Border>
-                    <Button Content="Get Started" Classes="primary" Click="GetStarted_Click" />
-                </StackPanel>
-                <StackPanel IsVisible="{Binding IsConnect}" Spacing="22">
-                    <TextBlock Text="Connect to GitHub" Classes="title" />
-                    <TextBlock Text="Link your GitHub account to store and sync your PD2 saves in a private repository." FontSize="16" />
-                    <Border Classes="card">
-                        <StackPanel Spacing="14">
-                            <TextBlock Text="Keep your saves available across devices." />
-                            <TextBlock Text="Store your saves in your own private repository." />
-                            <TextBlock Text="Maintain a history of previous save versions." />
-                            <TextBlock Text="Stay in control of your data." />
-                            <TextBlock Text="These features will become available with synchronization. Connecting alone does not transfer files." Classes="muted" />
+                    </ToggleButton>
+                    <ToggleButton Classes="nav" IsChecked="{Binding IsSettings, Mode=OneWay}" Click="SettingsNav_Click">
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <PathIcon Classes="navIcon" Data="{StaticResource IconSettings}" />
+                            <TextBlock Text="Settings" VerticalAlignment="Center" />
                         </StackPanel>
-                    </Border>
-                    <TextBlock Text="{Binding GitHub.Notice}" Classes="muted" />
-                    <WrapPanel>
-                        <Button Content="Connect with GitHub" Classes="primary" Click="Connect_Click" IsEnabled="{Binding GitHub.CanConnect}" Margin="0,0,12,12" />
-                        <Button Content="Back" Click="Back_Click" Margin="0,0,12,12" />
-                        <Button Content="Inspect Local Saves" Click="Dashboard_Click" IsVisible="{Binding CanUseLocalOnly}" Margin="0,0,12,12" />
-                    </WrapPanel>
+                    </ToggleButton>
                 </StackPanel>
-                <StackPanel IsVisible="{Binding IsAuthorize}" Spacing="20">
-                    <TextBlock Text="Authorize PD2 Cloud" Classes="title" />
-                    <TextBlock Text="Complete authorization in your browser to connect your GitHub account." />
-                    <Border Classes="card" IsVisible="{Binding GitHub.HasCode}">
-                        <StackPanel Spacing="18">
-                            <TextBlock Text="Enter this temporary code on GitHub" Classes="muted" />
-                            <SelectableTextBlock Text="{Binding GitHub.UserCode}" FontSize="32" FontWeight="SemiBold" />
-                            <WrapPanel>
-                                <Button Content="Copy Code" Click="CopyCode_Click" Margin="0,0,12,12" />
-                                <Button Content="Open GitHub" Classes="primary" Click="OpenAuthorization_Click" Margin="0,0,12,12" />
-                            </WrapPanel>
-                            <SelectableTextBlock Text="{Binding GitHub.VerificationAddress}" TextWrapping="Wrap" />
+            </Border>
+
+            <ScrollViewer Grid.Column="1" x:Name="PageScroll" HorizontalScrollBarVisibility="Disabled">
+                <StackPanel Margin="28,22,28,30" Spacing="16" MaxWidth="900" HorizontalAlignment="Stretch">
+
+                    <!-- Loading -->
+                    <StackPanel IsVisible="{Binding IsLoading}" Spacing="16">
+                        <TextBlock Classes="pageTitle" Text="Opening your collection…" />
+                        <ProgressBar IsIndeterminate="True" />
+                    </StackPanel>
+
+                    <!-- Welcome -->
+                    <StackPanel IsVisible="{Binding IsWelcome}" Spacing="18">
+                        <StackPanel Spacing="7">
+                            <TextBlock Classes="pageTitle" Text="Your saves. Every device." />
+                            <TextBlock Classes="subtitle" Text="Keep your Project Diablo 2 saves in sync across your devices." />
                         </StackPanel>
-                    </Border>
-                    <ProgressBar IsIndeterminate="True" Height="3" IsVisible="{Binding GitHub.IsBusy}" />
-                    <TextBlock Text="{Binding GitHub.Notice}" />
-                    <WrapPanel>
-                        <Button Content="Retry" Classes="primary" Click="Connect_Click" IsVisible="{Binding ShowAuthorizationRetry}" IsEnabled="{Binding GitHub.CanConnect}" Margin="0,0,12,12" />
-                        <Button Content="Cancel" Click="Back_Click" Margin="0,0,12,12" />
-                    </WrapPanel>
-                </StackPanel>
-                <StackPanel IsVisible="{Binding IsRepository}" Spacing="20">
-                    <TextBlock Text="Select Repository" Classes="title" />
-                    <TextBlock Text="Choose a private GitHub repository to store your PD2 saves." />
-                    <TextBlock Text="GitHub Connected" FontWeight="SemiBold" IsVisible="{Binding GitHub.IsConnected}" />
-                    <TextBlock Text="{Binding GitHub.Account}" Classes="muted" />
-                    <ProgressBar IsIndeterminate="True" Height="3" IsVisible="{Binding GitHub.IsBusy}" />
-                    <TextBlock Text="{Binding GitHub.Notice}" />
-                    <Border Classes="card" IsVisible="{Binding GitHub.ShowEmptyRepositories}">
-                        <StackPanel Spacing="12">
-                            <TextBlock Text="No available repositories" FontSize="21" FontWeight="SemiBold" />
-                            <TextBlock Text="Already have a private repository? Use Manage GitHub Access to allow PD2 Cloud to use it. Otherwise, create one on GitHub, then return here and refresh." />
-                            <Button Content="Create Repository on GitHub" Classes="primary" Click="CreateRepository_Click" />
+                        <Border Classes="card">
+                            <StackPanel Spacing="14">
+                                <Border Classes="iconTile accent">
+                                    <Path Classes="iconAccent" Data="{StaticResource IconCloud}" />
+                                </Border>
+                                <TextBlock Classes="sectionTitle" Text="Your own private save collection" />
+                                <TextBlock Classes="muted" Text="PD2 Cloud uses a private GitHub repository to securely store your saves. Connect your account, choose a repository, and select your local save folder." />
+                                <TextBlock Classes="mutedSmall" Text="Synchronization is coming next. Setup keeps your files untouched." />
+                            </StackPanel>
+                        </Border>
+                        <Button Classes="primary" Content="Get Started" Click="GetStarted_Click" HorizontalAlignment="Left" />
+                    </StackPanel>
+
+                    <!-- Connect -->
+                    <StackPanel IsVisible="{Binding IsConnect}" Spacing="18">
+                        <StackPanel Spacing="7">
+                            <TextBlock Classes="pageTitle" Text="Connect to GitHub" />
+                            <TextBlock Classes="subtitle" Text="Link your GitHub account to store and sync your PD2 saves in a private repository." />
                         </StackPanel>
-                    </Border>
-                    <ListBox ItemsSource="{Binding GitHub.Repositories}" SelectedItem="{Binding GitHub.Candidate}" IsVisible="{Binding GitHub.HasRepositories}" IsEnabled="{Binding GitHub.CanManage}" MaxHeight="280" SelectionMode="Single">
-                        <ListBox.ItemTemplate>
-                            <DataTemplate x:DataType="github:RepositoryChoice">
-                                <StackPanel Margin="10" Spacing="5">
-                                    <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="17" />
-                                    <StackPanel Orientation="Horizontal" Spacing="16">
-                                        <TextBlock Text="{Binding Owner}" Classes="muted" />
-                                        <TextBlock Text="Private" Foreground="#8CCBAF" />
-                                    </StackPanel>
+                        <Border Classes="card">
+                            <StackPanel Spacing="12">
+                                <StackPanel Orientation="Horizontal" Spacing="10">
+                                    <Path Classes="iconSuccess" Data="{StaticResource IconCheckCircle}" />
+                                    <TextBlock Text="Keep your saves available across devices." />
                                 </StackPanel>
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
-                    </ListBox>
-                    <Expander Header="Need help granting access?" HorizontalAlignment="Stretch">
-                        <TextBlock Text="On GitHub, configure PD2 Cloud and select your repository. If PD2 Cloud is not listed, ask the app owner for its installation link. For a repository owned by an organization, its owner may need to approve access. Return here and refresh when you’re done. When creating a repository, choose Private." Margin="0,10" />
-                    </Expander>
-                    <TextBlock Text="{Binding RepositorySafety}" Classes="muted" />
-                    <WrapPanel>
-                        <Button Content="Continue" Classes="primary" Click="ChooseRepository_Click" IsVisible="{Binding GitHub.HasRepositories}" IsEnabled="{Binding GitHub.CanSelect}" Margin="0,0,12,12" />
-                        <Button Content="Back" Click="Back_Click" Margin="0,0,12,12" />
-                    </WrapPanel>
-                    <WrapPanel>
-                        <Button Content="Create Private Repository" Click="CreateRepository_Click" IsVisible="{Binding GitHub.HasRepositories}" Margin="0,0,12,12" />
-                        <Button Content="Refresh Repositories" Click="ReloadRepositories_Click" IsEnabled="{Binding GitHub.CanReload}" Margin="0,0,12,12" />
-                        <Button Content="Manage GitHub Access" Click="ManageAccess_Click" Margin="0,0,12,12" />
-                        <Button Content="Reconnect" Click="Reconnect_Click" IsEnabled="{Binding GitHub.CanManage}" IsVisible="{Binding ShowDisconnected}" Margin="0,0,12,12" />
-                    </WrapPanel>
-                </StackPanel>
-                <StackPanel IsVisible="{Binding IsDashboard}" Spacing="18">
-                    <TextBlock Text="Your Saves" Classes="title" />
-                    <TextBlock Text="{Binding DashboardConnectionStatus}" FontWeight="SemiBold" />
-                    <Border Classes="card">
-                        <StackPanel Spacing="10">
-                            <TextBlock Text="Repository" Classes="muted" />
-                            <TextBlock Text="{Binding RepositoryName}" />
-                            <TextBlock Text="{Binding SyncStatus}" FontSize="20" FontWeight="SemiBold" />
-                            <TextBlock Text="Your saves stay untouched until you choose to upload. Sync All only ever publishes an initial snapshot; it never replaces your local files." Classes="muted" />
-                            <TextBlock Text="{Binding SyncNotice}" IsVisible="{Binding HasSyncNotice}" />
+                                <StackPanel Orientation="Horizontal" Spacing="10">
+                                    <Path Classes="iconSuccess" Data="{StaticResource IconCheckCircle}" />
+                                    <TextBlock Text="Store your saves in your own private repository." />
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="10">
+                                    <Path Classes="iconSuccess" Data="{StaticResource IconCheckCircle}" />
+                                    <TextBlock Text="Maintain a history of previous save versions." />
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="10">
+                                    <Path Classes="iconSuccess" Data="{StaticResource IconCheckCircle}" />
+                                    <TextBlock Text="Stay in control of your data." />
+                                </StackPanel>
+                                <Border Classes="divider" Margin="0,4" />
+                                <TextBlock Classes="mutedSmall" Text="These features will become available with synchronization. Connecting alone does not transfer files." />
+                            </StackPanel>
+                        </Border>
+                        <TextBlock Classes="muted" Text="{Binding GitHub.Notice}" />
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <Button Classes="primary" Content="Connect with GitHub" Click="Connect_Click" IsEnabled="{Binding GitHub.CanConnect}" />
+                            <Button Content="Back" Click="Back_Click" />
+                            <Button Content="Inspect Local Saves" Click="Dashboard_Click" IsVisible="{Binding CanUseLocalOnly}" />
                         </StackPanel>
-                    </Border>
-                    <WrapPanel>
-                        <Button Content="{Binding SyncActionLabel}" Classes="primary" Click="SyncAll_Click" IsVisible="{Binding ShowSyncAction}" IsEnabled="{Binding CanSyncAll}" Margin="0,0,12,12" ToolTip.Tip="{Binding SyncAllReason}" />
-                        <Button Content="Refresh" Click="Refresh_Click" Margin="0,0,12,12" />
-                        <Button Content="Review Upload Recovery" Click="OpenRecovery_Click" IsVisible="{Binding HasRecoveryEvidence}" Margin="0,0,12,12" />
-                    </WrapPanel>
-                    <TextBlock Text="{Binding SyncAllReason}" IsVisible="{Binding HasSyncAllReason}" Classes="muted" />
-                    <TextBlock Text="Refresh inspects local files and verifies cloud contents at one checked revision. It never transfers files." Classes="muted" />
-                    <TextBlock Text="{Binding GitHub.Notice}" IsVisible="{Binding ShowGitHubNotice}" />
-                </StackPanel>
-                <StackPanel IsVisible="{Binding IsUploadReview}" Spacing="18">
-                    <TextBlock Text="Review Upload" Classes="title" />
-                    <TextBlock Text="{Binding Cloud.Notice}" />
-                    <Border Classes="card" IsVisible="{Binding Sync.IsBootstrapCase}">
-                        <StackPanel Spacing="10">
-                            <TextBlock Text="{Binding Sync.ReviewBootstrapTitle}" FontSize="20" FontWeight="SemiBold" />
-                            <TextBlock Text="{Binding Sync.ReviewBootstrapMessage}" />
+                    </StackPanel>
+
+                    <!-- Authorize -->
+                    <StackPanel IsVisible="{Binding IsAuthorize}" Spacing="18">
+                        <StackPanel Spacing="7">
+                            <TextBlock Classes="pageTitle" Text="Authorize PD2 Cloud" />
+                            <TextBlock Classes="subtitle" Text="Complete authorization in your browser to connect your GitHub account." />
                         </StackPanel>
-                    </Border>
-                    <Border Classes="card">
-                        <StackPanel Spacing="10">
-                            <TextBlock Text="What will be published" FontSize="20" FontWeight="SemiBold" />
-                            <TextBlock Text="{Binding Sync.ReviewLocation}" Classes="muted" />
-                            <TextBlock Text="{Binding Sync.ReviewRepositoryLine}" />
-                            <TextBlock Text="{Binding Sync.ReviewSummary}" FontWeight="SemiBold" />
-                            <TextBlock Text="Collection fingerprint" Classes="muted" />
-                            <SelectableTextBlock Text="{Binding Sync.ReviewFingerprint}" TextWrapping="Wrap" FontSize="11" />
+                        <Border Classes="card" IsVisible="{Binding GitHub.HasCode}">
+                            <StackPanel Spacing="16">
+                                <TextBlock Classes="label" Text="ENTER THIS TEMPORARY CODE ON GITHUB" />
+                                <SelectableTextBlock Text="{Binding GitHub.UserCode}" FontSize="30" FontWeight="SemiBold" />
+                                <StackPanel Orientation="Horizontal" Spacing="10">
+                                    <Button Content="Copy Code" Click="CopyCode_Click" />
+                                    <Button Classes="primary" Click="OpenAuthorization_Click">
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <Path Classes="iconOnAccent" Data="{StaticResource IconExternal}" />
+                                            <TextBlock Text="Open GitHub" />
+                                        </StackPanel>
+                                    </Button>
+                                </StackPanel>
+                                <SelectableTextBlock Text="{Binding GitHub.VerificationAddress}" Classes="mutedSmall" />
+                            </StackPanel>
+                        </Border>
+                        <ProgressBar IsIndeterminate="True" IsVisible="{Binding GitHub.IsBusy}" />
+                        <TextBlock Classes="muted" Text="{Binding GitHub.Notice}" />
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <Button Classes="primary" Content="Retry" Click="Connect_Click" IsVisible="{Binding ShowAuthorizationRetry}" IsEnabled="{Binding GitHub.CanConnect}" />
+                            <Button Content="Cancel" Click="Back_Click" />
                         </StackPanel>
-                    </Border>
-                    <CheckBox IsChecked="{Binding Sync.AdoptionAcknowledged, Mode=TwoWay}" IsVisible="{Binding Sync.RequiresAdoptionAcknowledgement}"
-                              Content="I understand this will adopt a repository that already contains unrelated files, preserving them unchanged." />
-                    <TextBlock Text="{Binding Sync.ReviewRequirementNotice}" IsVisible="{Binding Sync.HasReviewRequirementNotice}" Foreground="#E0B15A" />
-                    <TextBlock Text="Confirming publishes this snapshot to your private repository and records the published revision locally as the last upload. It does not replace your local files and is not a verified two-device synchronization." Classes="muted" />
-                    <ProgressBar IsIndeterminate="True" Height="3" IsVisible="{Binding Sync.IsBusy}" />
-                    <TextBlock Text="{Binding Sync.ReviewNotice}" IsVisible="{Binding Sync.HasReviewNotice}" />
-                    <TextBlock Text="{Binding Sync.ResultTitle}" FontSize="20" FontWeight="SemiBold" IsVisible="{Binding Sync.HasResult}" />
-                    <TextBlock Text="{Binding Sync.ResultMessage}" IsVisible="{Binding Sync.HasResult}" />
-                    <WrapPanel>
-                        <Button Content="Confirm Upload" Classes="primary" Click="ConfirmUpload_Click" IsEnabled="{Binding Sync.CanConfirm}" Margin="0,0,12,12" />
-                        <Button Content="Cancel Upload" Click="CancelUpload_Click" IsVisible="{Binding Sync.IsBusy}" Margin="0,0,12,12" />
-                        <Button Content="Back to Saves" Click="Dashboard_Click" Margin="0,0,12,12" />
-                    </WrapPanel>
-                    <Expander Header="Files to publish" IsExpanded="True" HorizontalAlignment="Stretch">
-                        <ItemsControl ItemsSource="{Binding Sync.ReviewFiles}">
+                    </StackPanel>
+
+                    <!-- Repository -->
+                    <StackPanel IsVisible="{Binding IsRepository}" Spacing="16">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <StackPanel Spacing="7">
+                                <TextBlock Classes="pageTitle" Text="Select Repository" />
+                                <TextBlock Classes="subtitle" Text="Choose a private GitHub repository to store your PD2 saves." />
+                            </StackPanel>
+                            <Border Grid.Column="1" Classes="pill" Classes.success="{Binding GitHub.IsConnected}" VerticalAlignment="Top">
+                                <StackPanel Orientation="Horizontal" Spacing="7">
+                                    <Path Classes="iconSmall" Classes.success="{Binding GitHub.IsConnected}" Data="{StaticResource IconCheckCircle}" />
+                                    <TextBlock Classes="pillText" Classes.success="{Binding GitHub.IsConnected}" Text="{Binding GitHub.ConnectionStatus}" />
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+                        <TextBlock Classes="mutedSmall" Text="{Binding GitHub.Account}" />
+                        <ProgressBar IsIndeterminate="True" IsVisible="{Binding GitHub.IsBusy}" />
+                        <TextBlock Classes="muted" Text="{Binding GitHub.Notice}" />
+                        <Border Classes="card" IsVisible="{Binding GitHub.ShowEmptyRepositories}">
+                            <StackPanel Spacing="12">
+                                <TextBlock Classes="sectionTitle" Text="No available repositories" />
+                                <TextBlock Classes="muted" Text="Already have a private repository? Use Manage GitHub Access to allow PD2 Cloud to use it. Otherwise, create one on GitHub, then return here and refresh." />
+                                <Button Classes="primary" Content="Create Repository on GitHub" Click="CreateRepository_Click" HorizontalAlignment="Left" />
+                            </StackPanel>
+                        </Border>
+                        <ListBox ItemsSource="{Binding GitHub.Repositories}" SelectedItem="{Binding GitHub.Candidate}"
+                                 IsVisible="{Binding GitHub.HasRepositories}" IsEnabled="{Binding GitHub.CanManage}"
+                                 MaxHeight="260" SelectionMode="Single">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate x:DataType="github:RepositoryChoice">
+                                    <Border Padding="14,11">
+                                        <StackPanel Spacing="4">
+                                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="14" />
+                                            <StackPanel Orientation="Horizontal" Spacing="14">
+                                                <TextBlock Text="{Binding Owner}" Classes="mutedSmall" />
+                                                <TextBlock Text="Private" Classes="mutedSmall" Foreground="{StaticResource Success}" />
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                        <Border Classes="nested">
+                            <StackPanel>
+                                <ToggleButton x:Name="AccessHelpToggle" Classes="details">
+                                    <Grid ColumnDefinitions="Auto,*,Auto">
+                                        <Path Classes="iconSmall" Data="{StaticResource IconInfo}" />
+                                        <TextBlock Grid.Column="1" Margin="9,0,0,0" Text="Need help granting access?" FontSize="12.5" VerticalAlignment="Center" />
+                                        <Path Grid.Column="2" Classes="iconSmall" Data="{StaticResource IconChevronDown}" />
+                                    </Grid>
+                                </ToggleButton>
+                                <TextBlock Classes="muted" Margin="0,10,0,0" IsVisible="{Binding #AccessHelpToggle.IsChecked}" Text="On GitHub, configure PD2 Cloud and select your repository. If PD2 Cloud is not listed, ask the app owner for its installation link. For a repository owned by an organization, its owner may need to approve access. Return here and refresh when you’re done. When creating a repository, choose Private." />
+                            </StackPanel>
+                        </Border>
+                        <Border Classes="nested">
+                            <StackPanel>
+                                <ToggleButton x:Name="SafetyToggle" Classes="details">
+                                    <Grid ColumnDefinitions="Auto,*,Auto">
+                                        <Path Classes="iconSmall" Data="{StaticResource IconShield}" />
+                                        <TextBlock Grid.Column="1" Margin="9,0,0,0" Text="Repository safety" FontSize="12.5" VerticalAlignment="Center" />
+                                        <Path Grid.Column="2" Classes="iconSmall" Data="{StaticResource IconChevronDown}" />
+                                    </Grid>
+                                </ToggleButton>
+                                <TextBlock Classes="muted" Margin="0,10,0,0" IsVisible="{Binding #SafetyToggle.IsChecked}" Text="{Binding RepositorySafety}" />
+                            </StackPanel>
+                        </Border>
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <Button Classes="primary" Content="Continue" Click="ChooseRepository_Click" IsVisible="{Binding GitHub.HasRepositories}" IsEnabled="{Binding GitHub.CanSelect}" />
+                            <Button Content="Back" Click="Back_Click" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <Button Content="Create Private Repository" Click="CreateRepository_Click" IsVisible="{Binding GitHub.HasRepositories}" />
+                            <Button Content="Refresh Repositories" Click="ReloadRepositories_Click" IsEnabled="{Binding GitHub.CanReload}" />
+                            <Button Content="Manage GitHub Access" Click="ManageAccess_Click" />
+                            <Button Content="Reconnect" Click="Reconnect_Click" IsEnabled="{Binding GitHub.CanManage}" IsVisible="{Binding ShowDisconnected}" />
+                        </StackPanel>
+                    </StackPanel>
+
+                    <!-- Find Your Saves (onboarding) -->
+                    <StackPanel IsVisible="{Binding IsFolder}" Spacing="16">
+                        <StackPanel Spacing="7">
+                            <TextBlock Classes="pageTitle" Text="Find Your Saves" />
+                            <TextBlock Classes="subtitle" Text="Select the folder where Project Diablo 2 stores your single-player saves." />
+                        </StackPanel>
+                        <Border Classes="card">
+                            <StackPanel Spacing="14">
+                                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+                                    <Border Classes="iconTile violet">
+                                        <Path Classes="iconViolet" Data="{StaticResource IconFolder}" />
+                                    </Border>
+                                    <SelectableTextBlock Grid.Column="1" Text="{Binding Local.SelectedPath}" VerticalAlignment="Center" FontSize="12.5" />
+                                    <TextBlock Grid.Column="1" Classes="muted" Text="No folder selected yet." IsVisible="{Binding Local.IsInitial}" VerticalAlignment="Center" />
+                                    <Button Grid.Column="2" Click="SelectFolder_Click" IsEnabled="{Binding Local.CanSelect}"
+                                            IsVisible="{Binding ShowFolderEditor}" Content="Select Folder" />
+                                </Grid>
+                                <ProgressBar IsIndeterminate="True" IsVisible="{Binding Local.IsBusy}" />
+                                <Border Classes="nested" IsVisible="{Binding Local.HasInspection}">
+                                    <StackPanel Spacing="8">
+                                        <StackPanel Orientation="Horizontal" Spacing="9">
+                                            <Path Classes="iconSuccess" Data="{StaticResource IconCheckCircle}" />
+                                            <TextBlock Text="{Binding Local.StateLabel}" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                            <TextBlock Classes="mutedSmall" Text="{Binding Local.CountSummary}" VerticalAlignment="Center" />
+                                        </StackPanel>
+                                        <TextBlock Classes="mutedSmall" Text="{Binding Local.Status}" />
+                                        <TextBlock Classes="mutedSmall" Text="{Binding Local.LastInspection}" />
+                                    </StackPanel>
+                                </Border>
+                                <TextBlock Classes="mutedSmall" Text="{Binding Local.SettingsNotice}" IsVisible="{Binding Local.HasSettingsNotice}" />
+                                <TextBlock Classes="mutedSmall" Text="{Binding Local.PickerNotice}" IsVisible="{Binding Local.HasPickerNotice}" />
+                                <StackPanel Orientation="Horizontal" Spacing="10">
+                                    <Button Content="Retry Inspection" Click="Inspect_Click" IsEnabled="{Binding Local.CanRefresh}" IsVisible="{Binding ShowInspectAction}" />
+                                    <Button Click="OpenLocalFiles_Click" IsEnabled="{Binding CanOpenLocalFiles}" IsVisible="{Binding Local.HasInspection}" Content="View Files" />
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+                        <TextBlock Classes="muted" Text="{Binding FolderExplanation}" />
+                        <ItemsControl ItemsSource="{Binding Local.Files}" IsVisible="{Binding Local.HasInspection}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate x:DataType="core:FileEntry">
-                                    <Border BorderBrush="#303947" BorderThickness="0,0,0,1" Padding="4,10">
-                                        <StackPanel Spacing="3">
-                                            <SelectableTextBlock Text="{Binding RelativePath}" TextWrapping="Wrap" />
-                                            <TextBlock Text="{Binding SizeBytes}" Classes="muted" />
-                                        </StackPanel>
+                                    <Border BorderBrush="{StaticResource StrokeSoft}" BorderThickness="0,0,0,1" Padding="2,8">
+                                        <SelectableTextBlock Text="{Binding RelativePath}" FontSize="12.5" />
                                     </Border>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
-                    </Expander>
-                </StackPanel>
-                <StackPanel IsVisible="{Binding IsRecovery}" Spacing="18">
-                    <TextBlock Text="Upload Recovery" Classes="title" />
-                    <TextBlock Text="Review an upload that was interrupted, lost or overtaken by another change. This screen only reads retained evidence; it never uploads again, replaces files or changes a baseline." Classes="muted" />
-                    <Border Classes="card">
-                        <StackPanel Spacing="10">
-                            <TextBlock Text="{Binding Sync.RecoveryEvidenceLine}" FontWeight="SemiBold" />
-                            <TextBlock Text="{Binding Sync.RecoveryStatusTitle}" IsVisible="{Binding Sync.HasRecoveryStatus}" FontSize="18" FontWeight="SemiBold" />
-                            <TextBlock Text="{Binding Sync.RecoveryMessage}" IsVisible="{Binding Sync.HasRecoveryStatus}" />
-                            <TextBlock Text="{Binding Sync.RecoveryNotice}" IsVisible="{Binding Sync.HasRecoveryNotice}" />
-                        </StackPanel>
-                    </Border>
-                    <ProgressBar IsIndeterminate="True" Height="3" IsVisible="{Binding Sync.IsBusy}" />
-                    <WrapPanel>
-                        <Button Content="Re-check Evidence" Classes="primary" Click="AssessRecovery_Click" IsEnabled="{Binding CanAssessRecovery}" Margin="0,0,12,12" />
-                        <Button Content="Back to Saves" Click="Dashboard_Click" Margin="0,0,12,12" />
-                    </WrapPanel>
-                </StackPanel>
-                <StackPanel IsVisible="{Binding IsSettings}" Spacing="20">
-                    <TextBlock Text="Settings" Classes="title" />
-                    <WrapPanel>
-                        <ToggleButton Classes="navigation" Content="General" Click="GeneralSettings_Click" IsChecked="{Binding IsGeneralSettings, Mode=OneWay}" Margin="0,0,20,12" />
-                        <ToggleButton Classes="navigation" Content="GitHub" Click="Settings_Click" IsChecked="{Binding IsGitHubSettings, Mode=OneWay}" Margin="0,0,20,12" />
-                        <ToggleButton Classes="navigation" Content="Saves" Click="SavesSettings_Click" IsChecked="{Binding IsSavesSettings, Mode=OneWay}" Margin="0,0,20,12" />
-                    </WrapPanel>
-                    <StackPanel IsVisible="{Binding IsGeneralSettings}" Spacing="12">
-                        <TextBlock Text="General" FontSize="24" FontWeight="SemiBold" />
-                        <TextBlock Text="PD2 Cloud keeps your save folder and account preferences on this device. Saves are never transferred automatically." />
-                    </StackPanel>
-                    <StackPanel IsVisible="{Binding IsGitHubSettings}" Spacing="18">
-                        <TextBlock Text="GitHub Connection" FontSize="24" FontWeight="SemiBold" />
-                        <TextBlock Text="{Binding GitHub.ConnectionStatus}" FontWeight="SemiBold" />
-                        <TextBlock Text="{Binding GitHub.Notice}" />
-                        <ProgressBar IsIndeterminate="True" Height="3" IsVisible="{Binding GitHub.IsBusy}" />
-                        <TextBlock Text="{Binding GitHub.LastCheck}" Classes="muted" />
-                        <Border Classes="card" IsVisible="{Binding GitHub.IsConnected}">
-                            <StackPanel Spacing="10">
-                                <TextBlock Text="Account" Classes="muted" />
-                                <TextBlock Text="{Binding GitHub.Account}" />
-                                <TextBlock Text="Repository" Classes="muted" />
-                                <TextBlock Text="{Binding RepositoryName}" />
+                        <Border Classes="card" IsVisible="{Binding Local.HasInspection}">
+                            <StackPanel>
+                                <ToggleButton x:Name="FolderDetailsToggle" Classes="details">
+                                    <Grid ColumnDefinitions="Auto,*,Auto">
+                                        <Path Classes="iconSmall" Data="{StaticResource IconInfo}" />
+                                        <TextBlock Grid.Column="1" Margin="9,0,0,0" Text="Inspection Details" FontSize="12.5" VerticalAlignment="Center" />
+                                        <Path Grid.Column="2" Classes="iconSmall" Data="{StaticResource IconChevronDown}" />
+                                    </Grid>
+                                </ToggleButton>
+                                <StackPanel Spacing="12" Margin="0,14,0,0" IsVisible="{Binding #FolderDetailsToggle.IsChecked}">
+                                    <TextBlock Classes="mutedSmall" Text="{Binding Local.LastInspection}" />
+                                    <ItemsControl ItemsSource="{Binding Local.Issues}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate x:DataType="core:ValidationIssue">
+                                                <StackPanel Margin="0,6" Spacing="3">
+                                                    <TextBlock Text="{Binding RelativePath}" FontWeight="SemiBold" FontSize="12.5" />
+                                                    <TextBlock Text="{Binding Message}" Classes="mutedSmall" />
+                                                </StackPanel>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    <TextBlock Classes="label" Text="FILE SIZES AND SHA-256" />
+                                    <ItemsControl ItemsSource="{Binding Local.Files}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate x:DataType="core:FileEntry">
+                                                <StackPanel Margin="0,4" Spacing="2">
+                                                    <TextBlock Text="{Binding RelativePath}" FontSize="12.5" />
+                                                    <TextBlock Text="{Binding SizeBytes}" Classes="mutedSmall" />
+                                                    <SelectableTextBlock Text="{Binding Sha256}" Classes="mono" />
+                                                </StackPanel>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    <TextBlock Classes="label" Text="COLLECTION FINGERPRINT" />
+                                    <SelectableTextBlock Text="{Binding Local.CollectionFingerprint}" Classes="mono" />
+                                </StackPanel>
                             </StackPanel>
                         </Border>
-                        <StackPanel IsVisible="{Binding ShowDisconnected}" Spacing="12">
-                            <TextBlock Text="Connect your GitHub account to sync your saves across devices." />
-                            <Button Content="Connect with GitHub" Classes="primary" Click="SettingsConnect_Click" IsEnabled="{Binding GitHub.CanConnect}" />
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <Button Classes="primary" Content="Continue" Click="CompleteSetup_Click" IsEnabled="{Binding CanContinueFolder}" />
+                            <Button Content="Back" Click="Back_Click" />
                         </StackPanel>
-                        <WrapPanel>
-                            <Button Content="Change Repository" Classes="primary" Click="ChangeRepository_Click" IsVisible="{Binding GitHub.IsConnected}" IsEnabled="{Binding GitHub.CanManage}" Margin="0,0,12,12" />
-                            <Button Content="Reconnect" Click="Reconnect_Click" IsVisible="{Binding GitHub.IsConnected}" IsEnabled="{Binding GitHub.CanConnect}" Margin="0,0,12,12" />
-                            <Button Content="Check Connection" Click="ReloadRepositories_Click" IsEnabled="{Binding GitHub.CanReload}" Margin="0,0,12,12" />
-                            <Button Content="Open in Browser" Click="OpenRepository_Click" IsVisible="{Binding GitHub.IsConnected}" Margin="0,0,12,12" />
-                            <Button Content="Manage GitHub Access" Click="ManageAccess_Click" Margin="0,0,12,12" />
-                            <Button Content="Disconnect" Click="Disconnect_Click" IsEnabled="{Binding GitHub.CanManage}" Margin="0,0,12,12" />
-                            <Button Content="Cancel" Click="CancelGitHub_Click" IsVisible="{Binding GitHub.IsBusy}" Margin="0,0,12,12" />
-                        </WrapPanel>
+                    </StackPanel>
 
-                    </StackPanel>
-                </StackPanel>
-                <Border Classes="card" IsVisible="{Binding ShowCloud}">
-                    <StackPanel Spacing="10">
-                        <TextBlock Text="Cloud Collection" FontSize="20" FontWeight="SemiBold" />
-                        <TextBlock Text="{Binding Cloud.Notice}" />
-                        <ProgressBar IsIndeterminate="True" Height="3" IsVisible="{Binding Cloud.IsBusy}" />
-                        <SelectableTextBlock Text="{Binding Cloud.Revision}" TextWrapping="Wrap" FontSize="11" />
-                        <TextBlock Text="{Binding ComparisonStatus}" Classes="muted" />
-                        <Button Content="Check Cloud Files" Click="CheckCloud_Click" IsEnabled="{Binding CanCheckCloud}" />
-                        <Button Content="Cancel Cloud Check" Click="CancelCloud_Click" IsVisible="{Binding Cloud.IsBusy}" />
-                    </StackPanel>
-                </Border>
-                <StackPanel IsVisible="{Binding ShowFolder}" Spacing="18">
-                    <TextBlock Text="Find Your Saves" Classes="title" IsVisible="{Binding IsFolder}" />
-                    <TextBlock Text="Select the folder where Project Diablo 2 stores your single-player saves." IsVisible="{Binding IsFolder}" />
-                    <Border Classes="card">
-                        <StackPanel Spacing="12">
-                            <TextBlock Text="Save Folder" FontSize="20" FontWeight="SemiBold" />
-                            <SelectableTextBlock Text="{Binding Local.SelectedPath}" TextWrapping="Wrap" />
-                            <Button Content="Select Folder" Click="SelectFolder_Click" IsEnabled="{Binding Local.CanSelect}" IsVisible="{Binding ShowFolderEditor}" />
-                            <TextBlock Text="{Binding Local.StateLabel}" IsVisible="{Binding ShowFolderEditor}" />
-                            <ProgressBar IsIndeterminate="True" Height="3" IsVisible="{Binding Local.IsBusy}" />
-                            <TextBlock Text="{Binding Local.Status}" IsVisible="{Binding ShowFolderEditor}" />
-                            <TextBlock Text="{Binding Local.CountSummary}" IsVisible="{Binding Local.HasInspection}" />
-                            <TextBlock Text="{Binding Local.LastInspection}" Classes="muted" IsVisible="{Binding ShowFolderEditor}" />
-                            <TextBlock Text="{Binding Local.SettingsNotice}" IsVisible="{Binding Local.HasSettingsNotice}" />
-                            <TextBlock Text="{Binding Local.PickerNotice}" IsVisible="{Binding Local.HasPickerNotice}" />
-                            <Button Content="Retry Inspection" Click="Inspect_Click" IsEnabled="{Binding Local.CanRefresh}" IsVisible="{Binding ShowFolderEditor}" />
-                        </StackPanel>
-                    </Border>
-                    <TextBlock Text="{Binding FolderExplanation}" Classes="muted" IsVisible="{Binding IsFolder}" />
-                    <WrapPanel IsVisible="{Binding IsFolder}">
-                        <Button Content="Continue" Classes="primary" Click="CompleteSetup_Click" IsEnabled="{Binding CanContinueFolder}" Margin="0,0,12,12" />
-                        <Button Content="Back" Click="Back_Click" Margin="0,0,12,12" />
-                    </WrapPanel>
-                    <ItemsControl ItemsSource="{Binding Local.Files}">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate x:DataType="core:FileEntry">
-                                <Border BorderBrush="#303947" BorderThickness="0,0,0,1" Padding="4,10">
-                                    <SelectableTextBlock Text="{Binding RelativePath}" TextWrapping="Wrap" />
+                    <!-- Dashboard -->
+                    <StackPanel IsVisible="{Binding IsDashboard}" Spacing="16">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <StackPanel Spacing="7">
+                                <TextBlock Classes="pageTitle" Text="Your Saves" />
+                                <TextBlock Classes="subtitle" Text="Keep your Project Diablo 2 save files in sync with GitHub." />
+                            </StackPanel>
+                            <Border Grid.Column="1" Classes="pill" Classes.success="{Binding GitHub.IsConnected}" VerticalAlignment="Top">
+                                <StackPanel Orientation="Horizontal" Spacing="7">
+                                    <Path Classes="iconSmall" Classes.success="{Binding GitHub.IsConnected}" Data="{StaticResource IconCheckCircle}" />
+                                    <TextBlock Classes="pillText" Classes.success="{Binding GitHub.IsConnected}" Text="{Binding DashboardConnectionStatus}" />
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+
+                        <Border Classes="card">
+                            <StackPanel Spacing="16">
+                                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="14">
+                                    <Border Classes="iconTile accent">
+                                        <Path Classes="iconAccent" Data="{StaticResource IconCloud}" />
+                                    </Border>
+                                    <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
+                                        <TextBlock Classes="label" Text="Repository" />
+                                        <TextBlock Text="{Binding RepositoryName}" FontSize="15" FontWeight="SemiBold" />
+                                    </StackPanel>
+                                    <Button Grid.Column="2" IsVisible="{Binding GitHub.IsConnected}" Click="OpenRepository_Click">
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <TextBlock Text="Open in Browser" />
+                                            <Path Classes="icon" Data="{StaticResource IconExternal}" />
+                                        </StackPanel>
+                                    </Button>
+                                </Grid>
+
+                                <Border Classes="nested">
+                                    <StackPanel Spacing="9">
+                                        <StackPanel Orientation="Horizontal" Spacing="10">
+                                            <Path Classes="iconSuccess" Data="{StaticResource IconCheckCircle}" IsVisible="{Binding IsSyncHealthy}" />
+                                            <TextBlock Text="{Binding SyncStatus}" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                        </StackPanel>
+                                        <TextBlock Classes="muted" Text="{Binding ComparisonStatus}" />
+                                        <StackPanel Orientation="Horizontal" Spacing="7" IsVisible="{Binding HasBaselineLine}">
+                                            <Path Classes="iconSmall" Data="{StaticResource IconClock}" />
+                                            <TextBlock Classes="mutedSmall" Text="{Binding BaselineLine}" VerticalAlignment="Center" />
+                                        </StackPanel>
+                                        <TextBlock Classes="mutedSmall" Text="{Binding Cloud.Notice}" />
+                                        <TextBlock Classes="warning" Text="{Binding SyncNotice}" IsVisible="{Binding HasSyncNotice}" />
+                                    </StackPanel>
                                 </Border>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                    <Expander Header="Inspection Details" IsVisible="{Binding Local.HasInspection}" HorizontalAlignment="Stretch">
-                        <StackPanel Spacing="12">
-                            <TextBlock Text="{Binding Local.LastInspection}" Classes="muted" />
-                            <ItemsControl ItemsSource="{Binding Local.Issues}">
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate x:DataType="core:ValidationIssue">
-                                        <StackPanel Margin="0,8" Spacing="4">
-                                            <TextBlock Text="{Binding RelativePath}" FontWeight="SemiBold" />
-                                            <TextBlock Text="{Binding Message}" />
+                            </StackPanel>
+                        </Border>
+
+                        <Grid ColumnDefinitions="Auto,Auto,Auto,*" ColumnSpacing="10">
+                            <Button Classes="primary" IsVisible="{Binding ShowSyncAction}" IsEnabled="{Binding CanSyncAll}"
+                                    Click="SyncAll_Click" ToolTip.Tip="{Binding SyncAllReason}">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <Path Classes="iconOnAccent" Data="{StaticResource IconSync}" />
+                                    <TextBlock Text="{Binding SyncActionLabel}" />
+                                </StackPanel>
+                            </Button>
+                            <Button Grid.Column="1" Click="Refresh_Click">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <Path Classes="icon" Data="{StaticResource IconRefresh}" />
+                                    <TextBlock Text="Refresh" />
+                                </StackPanel>
+                            </Button>
+                            <Button Grid.Column="2" IsVisible="{Binding HasRecoveryEvidence}" Click="OpenRecovery_Click">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <Path Classes="icon" Data="{StaticResource IconShield}" />
+                                    <TextBlock Text="Review Recovery" />
+                                </StackPanel>
+                            </Button>
+                        </Grid>
+                        <TextBlock Classes="mutedSmall" Text="{Binding SyncAllReason}" IsVisible="{Binding HasSyncAllReason}" />
+                        <TextBlock Classes="mutedSmall" Text="Refresh inspects local files and verifies cloud contents at one checked revision. It never transfers files." />
+
+                        <Grid ColumnDefinitions="*,*" ColumnSpacing="14">
+                            <Border Classes="tile">
+                                <StackPanel Spacing="12">
+                                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+                                        <Border Classes="iconTile accent">
+                                            <Path Classes="iconAccent" Data="{StaticResource IconCloud}" />
+                                        </Border>
+                                        <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                                            <TextBlock Classes="cardTitle" Text="Cloud Collection" />
+                                            <TextBlock Classes="mutedSmall" Text="{Binding CloudFileSummary}" />
                                         </StackPanel>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                            <TextBlock Text="File sizes (bytes) and SHA-256" FontWeight="SemiBold" />
-                            <ItemsControl ItemsSource="{Binding Local.Files}">
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate x:DataType="core:FileEntry">
-                                        <StackPanel Margin="0,6" Spacing="3">
-                                            <TextBlock Text="{Binding RelativePath}" />
-                                            <TextBlock Text="{Binding SizeBytes}" Classes="muted" />
-                                            <SelectableTextBlock Text="{Binding Sha256}" TextWrapping="Wrap" FontSize="11" />
+                                        <Button Grid.Column="2" Classes="iconOnly" Click="OpenCloudFiles_Click" IsEnabled="{Binding CanOpenCloudFiles}">
+                                            <Path Classes="icon" Data="{StaticResource IconChevronRight}" />
+                                        </Button>
+                                    </Grid>
+                                    <Button HorizontalAlignment="Left" Click="OpenCloudFiles_Click" IsEnabled="{Binding CanOpenCloudFiles}" Content="View Cloud Files" />
+                                </StackPanel>
+                            </Border>
+                            <Border Grid.Column="1" Classes="tile">
+                                <StackPanel Spacing="12">
+                                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+                                        <Border Classes="iconTile violet">
+                                            <Path Classes="iconViolet" Data="{StaticResource IconFolder}" />
+                                        </Border>
+                                        <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                                            <TextBlock Classes="cardTitle" Text="Save Folder" />
+                                            <SelectableTextBlock Text="{Binding Local.SelectedPath}" Classes="mutedSmall" />
+                                            <TextBlock Classes="mutedSmall" Text="{Binding LocalFileSummary}" />
                                         </StackPanel>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                            <TextBlock Text="Collection fingerprint" FontWeight="SemiBold" />
-                            <SelectableTextBlock Text="{Binding Local.CollectionFingerprint}" TextWrapping="Wrap" FontSize="11" />
+                                        <Button Grid.Column="2" Classes="iconOnly" Click="OpenLocalFiles_Click" IsEnabled="{Binding CanOpenLocalFiles}">
+                                            <Path Classes="icon" Data="{StaticResource IconChevronRight}" />
+                                        </Button>
+                                    </Grid>
+                                    <Button HorizontalAlignment="Left" Click="OpenLocalFiles_Click" IsEnabled="{Binding CanOpenLocalFiles}" Content="View Save Files" />
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+                    </StackPanel>
+
+                    <!-- Files -->
+                    <StackPanel IsVisible="{Binding IsFiles}" Spacing="16">
+                        <StackPanel Spacing="7">
+                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
+                                <TextBlock Classes="pageTitle" Text="{Binding FilesTitle}" VerticalAlignment="Center" />
+                                <Border Grid.Column="1" Classes="pathChip" IsVisible="{Binding HasFilesPath}">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <Path Classes="iconSubtle" Data="{StaticResource IconFolder}" />
+                                        <SelectableTextBlock Text="{Binding FilesPath}" FontSize="12" Foreground="{StaticResource TextSecondary}" TextTrimming="CharacterEllipsis" MaxWidth="300" />
+                                    </StackPanel>
+                                </Border>
+                            </Grid>
+                            <TextBlock Classes="subtitle" Text="{Binding FilesSubtitle}" />
                         </StackPanel>
-                    </Expander>
+
+                        <Border Classes="card" Padding="0">
+                            <StackPanel>
+                                <Border Background="{StaticResource NestedBg}" Padding="16,9">
+                                    <Grid ColumnDefinitions="*,90,96,140" ColumnSpacing="12">
+                                        <TextBlock Classes="label" Text="Name" />
+                                        <TextBlock Grid.Column="1" Classes="label" Text="Type" />
+                                        <TextBlock Grid.Column="2" Classes="label" Text="Size" />
+                                        <TextBlock Grid.Column="3" Classes="label" Text="Last Modified" />
+                                    </Grid>
+                                </Border>
+
+                                <ItemsControl ItemsSource="{Binding FileGroups}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:FileGroupHeader">
+                                            <StackPanel>
+                                                <Grid Classes="groupRow" ColumnDefinitions="Auto,Auto,*" ColumnSpacing="8">
+                                                    <Path Classes="iconSubtle" Data="{StaticResource IconChevronDown}" />
+                                                    <TextBlock Grid.Column="1" Text="{Binding Title}" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextSecondary}" VerticalAlignment="Center" />
+                                                    <TextBlock Grid.Column="2" Text="{Binding CountText}" Classes="mutedSmall" VerticalAlignment="Center" />
+                                                </Grid>
+                                                <ItemsControl ItemsSource="{Binding Rows}">
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate x:DataType="vm:FileRow">
+                                                            <Border BorderBrush="{StaticResource StrokeSoft}" BorderThickness="0,0,0,1">
+                                                                <Grid Classes="tableRow" ColumnDefinitions="*,90,96,140" ColumnSpacing="12">
+                                                                    <StackPanel Orientation="Horizontal" Spacing="9">
+                                                                        <Path Classes="iconSubtle" Data="{StaticResource IconFile}" />
+                                                                        <TextBlock Text="{Binding Name}" FontSize="12.5" VerticalAlignment="Center"
+                                                                                   TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+                                                                    </StackPanel>
+                                                                    <Border Grid.Column="1" Classes="badge" Background="{Binding BadgeBackground}" HorizontalAlignment="Left">
+                                                                        <TextBlock Text="{Binding TypeLabel}" Foreground="{Binding BadgeForeground}" FontSize="10.5" FontWeight="SemiBold" />
+                                                                    </Border>
+                                                                    <TextBlock Grid.Column="2" Classes="cell" Text="{Binding SizeText}" />
+                                                                    <TextBlock Grid.Column="3" Classes="cell" Text="{Binding ModifiedText}" />
+                                                                </Grid>
+                                                            </Border>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+
+                                <Border IsVisible="{Binding IsFilesEmpty}" Padding="16,22">
+                                    <TextBlock Classes="muted" Text="{Binding FilesEmptyText}" />
+                                </Border>
+
+                                <Border BorderBrush="{StaticResource StrokeSoft}" BorderThickness="0,1,0,0" Padding="16,12">
+                                    <StackPanel>
+                                        <ToggleButton x:Name="FileDetailsToggle" Classes="details">
+                                            <Grid ColumnDefinitions="Auto,*,Auto">
+                                                <Path Classes="iconSmall" Data="{StaticResource IconInfo}" />
+                                                <TextBlock Grid.Column="1" Margin="9,0,0,0" Text="Inspection Details" FontSize="12.5" VerticalAlignment="Center" />
+                                                <Path Grid.Column="2" Classes="iconSmall" Data="{StaticResource IconChevronDown}" />
+                                            </Grid>
+                                        </ToggleButton>
+                                        <StackPanel Spacing="12" Margin="0,14,0,0" IsVisible="{Binding #FileDetailsToggle.IsChecked}">
+                                            <TextBlock Classes="mutedSmall" Text="{Binding FilesInspectionLine}" IsVisible="{Binding HasFilesInspectionLine}" />
+                                            <ItemsControl ItemsSource="{Binding FilesIssues}">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate x:DataType="core:ValidationIssue">
+                                                        <StackPanel Margin="0,5" Spacing="2">
+                                                            <TextBlock Text="{Binding RelativePath}" FontWeight="SemiBold" FontSize="12" />
+                                                            <TextBlock Text="{Binding Message}" Classes="mutedSmall" />
+                                                        </StackPanel>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                            <TextBlock Classes="label" Text="FILE HASHES (SHA-256)" />
+                                            <ItemsControl ItemsSource="{Binding FileGroups}">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate x:DataType="vm:FileGroupHeader">
+                                                        <StackPanel>
+                                                            <ItemsControl ItemsSource="{Binding Rows}">
+                                                                <ItemsControl.ItemTemplate>
+                                                                    <DataTemplate x:DataType="vm:FileRow">
+                                                                        <StackPanel Margin="0,3" Spacing="1">
+                                                                            <TextBlock Text="{Binding Name}" FontSize="12" />
+                                                                            <SelectableTextBlock Text="{Binding Sha256}" Classes="mono" />
+                                                                        </StackPanel>
+                                                                    </DataTemplate>
+                                                                </ItemsControl.ItemTemplate>
+                                                            </ItemsControl>
+                                                        </StackPanel>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                            <StackPanel Spacing="3" IsVisible="{Binding HasFilesFingerprint}">
+                                                <TextBlock Classes="label" Text="COLLECTION FINGERPRINT" />
+                                                <SelectableTextBlock Text="{Binding FilesFingerprint}" Classes="mono" />
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+
+                    <!-- Upload review -->
+                    <StackPanel IsVisible="{Binding IsUploadReview}" Spacing="16">
+                        <StackPanel Spacing="7">
+                            <TextBlock Classes="pageTitle" Text="Review Upload" />
+                            <TextBlock Classes="subtitle" Text="{Binding Cloud.Notice}" />
+                        </StackPanel>
+                        <Border Classes="card" IsVisible="{Binding Sync.IsBootstrapCase}">
+                            <StackPanel Spacing="8">
+                                <TextBlock Classes="sectionTitle" Text="{Binding Sync.ReviewBootstrapTitle}" />
+                                <TextBlock Classes="muted" Text="{Binding Sync.ReviewBootstrapMessage}" />
+                            </StackPanel>
+                        </Border>
+                        <Border Classes="card">
+                            <StackPanel Spacing="10">
+                                <TextBlock Classes="sectionTitle" Text="What will be published" />
+                                <TextBlock Classes="mutedSmall" Text="{Binding Sync.ReviewLocation}" />
+                                <TextBlock Classes="muted" Text="{Binding Sync.ReviewRepositoryLine}" />
+                                <TextBlock Text="{Binding Sync.ReviewSummary}" FontWeight="SemiBold" />
+                                <StackPanel Spacing="3">
+                                    <TextBlock Classes="label" Text="COLLECTION FINGERPRINT" />
+                                    <SelectableTextBlock Text="{Binding Sync.ReviewFingerprint}" Classes="mono" />
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+                        <CheckBox IsChecked="{Binding Sync.AdoptionAcknowledged, Mode=TwoWay}" IsVisible="{Binding Sync.RequiresAdoptionAcknowledgement}"
+                                  Content="I understand this will adopt a repository that already contains unrelated files, preserving them unchanged." />
+                        <TextBlock Classes="warning" Text="{Binding Sync.ReviewRequirementNotice}" IsVisible="{Binding Sync.HasReviewRequirementNotice}" />
+                        <TextBlock Classes="mutedSmall" Text="Confirming publishes this snapshot to your private repository and records the published revision locally as the last upload. It does not replace your local files and is not a verified two-device synchronization." />
+                        <ProgressBar IsIndeterminate="True" IsVisible="{Binding Sync.IsBusy}" />
+                        <TextBlock Classes="muted" Text="{Binding Sync.ReviewNotice}" IsVisible="{Binding Sync.HasReviewNotice}" />
+                        <Border Classes="nested" IsVisible="{Binding Sync.HasResult}">
+                            <StackPanel Spacing="6">
+                                <TextBlock Text="{Binding Sync.ResultTitle}" FontSize="14" FontWeight="SemiBold" />
+                                <TextBlock Classes="muted" Text="{Binding Sync.ResultMessage}" />
+                            </StackPanel>
+                        </Border>
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <Button Classes="primary" Content="Confirm Upload" Click="ConfirmUpload_Click" IsEnabled="{Binding Sync.CanConfirm}" />
+                            <Button Content="Cancel Upload" Click="CancelUpload_Click" IsVisible="{Binding Sync.IsBusy}" />
+                            <Button Content="Back to Saves" Click="Dashboard_Click" />
+                        </StackPanel>
+                        <Border Classes="card" Padding="0">
+                            <StackPanel>
+                                <Border Background="{StaticResource NestedBg}" Padding="16,11" CornerRadius="12,12,0,0">
+                                    <TextBlock Text="Files to publish" FontSize="12.5" FontWeight="SemiBold" Foreground="{StaticResource TextSecondary}" />
+                                </Border>
+                                <ItemsControl ItemsSource="{Binding ReviewFileGroups}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:FileGroupHeader">
+                                            <StackPanel>
+                                                <Grid Classes="groupRow" ColumnDefinitions="Auto,Auto,*" ColumnSpacing="8">
+                                                    <TextBlock Text="{Binding Title}" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextSecondary}" />
+                                                    <TextBlock Grid.Column="1" Text="{Binding CountText}" Classes="mutedSmall" />
+                                                </Grid>
+                                                <ItemsControl ItemsSource="{Binding Rows}">
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate x:DataType="vm:FileRow">
+                                                            <Border BorderBrush="{StaticResource StrokeSoft}" BorderThickness="0,0,0,1">
+                                                                <Grid Classes="tableRow" ColumnDefinitions="*,90,96,140" ColumnSpacing="12">
+                                                                    <TextBlock Text="{Binding Name}" FontSize="12.5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+                                                                    <Border Grid.Column="1" Classes="badge" Background="{Binding BadgeBackground}" HorizontalAlignment="Left">
+                                                                        <TextBlock Text="{Binding TypeLabel}" Foreground="{Binding BadgeForeground}" FontSize="10.5" FontWeight="SemiBold" />
+                                                                    </Border>
+                                                                    <TextBlock Grid.Column="2" Classes="cell" Text="{Binding SizeText}" />
+                                                                </Grid>
+                                                            </Border>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+
+                    <!-- Recovery -->
+                    <StackPanel IsVisible="{Binding IsRecovery}" Spacing="16">
+                        <StackPanel Spacing="7">
+                            <TextBlock Classes="pageTitle" Text="Upload Recovery" />
+                            <TextBlock Classes="subtitle" Text="Review an upload that was interrupted, lost or overtaken by another change. This screen only reads retained evidence; it never uploads again, replaces files or changes a baseline." />
+                        </StackPanel>
+                        <Border Classes="card">
+                            <StackPanel Spacing="10">
+                                <StackPanel Orientation="Horizontal" Spacing="9">
+                                    <Path Classes="iconSmall" Data="{StaticResource IconShield}" />
+                                    <TextBlock Text="{Binding Sync.RecoveryEvidenceLine}" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                </StackPanel>
+                                <TextBlock Text="{Binding Sync.RecoveryStatusTitle}" IsVisible="{Binding Sync.HasRecoveryStatus}" FontSize="14" FontWeight="SemiBold" />
+                                <TextBlock Classes="muted" Text="{Binding Sync.RecoveryMessage}" IsVisible="{Binding Sync.HasRecoveryStatus}" />
+                                <TextBlock Classes="warning" Text="{Binding Sync.RecoveryNotice}" IsVisible="{Binding Sync.HasRecoveryNotice}" />
+                            </StackPanel>
+                        </Border>
+                        <ProgressBar IsIndeterminate="True" IsVisible="{Binding Sync.IsBusy}" />
+                        <StackPanel Orientation="Horizontal" Spacing="10">
+                            <Button Classes="primary" Content="Re-check Evidence" Click="AssessRecovery_Click" IsEnabled="{Binding CanAssessRecovery}" />
+                            <Button Content="Back to Saves" Click="Dashboard_Click" />
+                        </StackPanel>
+                    </StackPanel>
+
+                    <!-- Settings -->
+                    <StackPanel IsVisible="{Binding IsSettings}" Spacing="16">
+                        <StackPanel Spacing="7">
+                            <TextBlock Classes="pageTitle" Text="Settings" />
+                            <TextBlock Classes="subtitle" Text="Manage your GitHub connection and the folder PD2 Cloud inspects." />
+                        </StackPanel>
+                        <Border Classes="card" Padding="6" HorizontalAlignment="Left">
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <Button Classes="tab" Classes.active="{Binding IsGeneralSettings}" Click="GeneralSettings_Click" Content="General" />
+                                <Button Classes="tab" Classes.active="{Binding IsGitHubSettings}" Click="Settings_Click" Content="GitHub" />
+                                <Button Classes="tab" Classes.active="{Binding IsSavesSettings}" Click="SavesSettings_Click" Content="Saves" />
+                            </StackPanel>
+                        </Border>
+
+                        <!-- General -->
+                        <StackPanel IsVisible="{Binding IsGeneralSettings}" Spacing="14">
+                            <TextBlock Classes="sectionTitle" Text="General" />
+                            <Border Classes="card">
+                                <StackPanel Spacing="10">
+                                    <TextBlock Classes="muted" Text="PD2 Cloud keeps your save folder and account preferences on this device. Saves are never transferred automatically." />
+                                    <Border Classes="divider" />
+                                    <TextBlock Classes="mutedSmall" Text="Inspecting a folder only reads it. Uploading is a separate, reviewed step, and downloads are not available yet." />
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+
+                        <!-- GitHub -->
+                        <StackPanel IsVisible="{Binding IsGitHubSettings}" Spacing="14">
+                            <Grid ColumnDefinitions="*,Auto">
+                                <StackPanel Spacing="5">
+                                    <TextBlock Classes="sectionTitle" Text="GitHub Connection" />
+                                    <TextBlock Classes="muted" Text="Connect a private repository to sync your save files. Connection does not synchronize files automatically." />
+                                </StackPanel>
+                                <Border Grid.Column="1" Classes="pill" Classes.success="{Binding GitHub.IsConnected}" VerticalAlignment="Top">
+                                    <StackPanel Orientation="Horizontal" Spacing="7">
+                                        <Path Classes="iconSmall" Classes.success="{Binding GitHub.IsConnected}" Data="{StaticResource IconCheckCircle}" />
+                                        <TextBlock Classes="pillText" Classes.success="{Binding GitHub.IsConnected}" Text="{Binding GitHub.ConnectionStatus}" />
+                                    </StackPanel>
+                                </Border>
+                            </Grid>
+                            <Border Classes="card">
+                                <StackPanel Spacing="14">
+                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="14">
+                                        <Border Classes="iconTile">
+                                            <Path Classes="iconAccent" Data="{StaticResource IconUser}" />
+                                        </Border>
+                                        <Grid Grid.Column="1" ColumnDefinitions="*,*" ColumnSpacing="16">
+                                            <StackPanel Spacing="3">
+                                                <TextBlock Classes="label" Text="Account" />
+                                                <TextBlock Text="{Binding GitHub.Account}" />
+                                            </StackPanel>
+                                            <StackPanel Grid.Column="1" Spacing="3">
+                                                <TextBlock Classes="label" Text="Repository" />
+                                                <TextBlock Text="{Binding RepositoryName}" />
+                                            </StackPanel>
+                                        </Grid>
+                                    </Grid>
+                                    <Border Classes="divider" />
+                                    <TextBlock Classes="mutedSmall" Text="{Binding GitHub.LastCheck}" />
+                                    <TextBlock Classes="mutedSmall" Text="{Binding GitHub.Notice}" />
+                                    <ProgressBar IsIndeterminate="True" IsVisible="{Binding GitHub.IsBusy}" />
+                                    <StackPanel Orientation="Horizontal" Spacing="10">
+                                        <Button Classes="primary" Content="Change Repository" Click="ChangeRepository_Click" IsVisible="{Binding GitHub.IsConnected}" IsEnabled="{Binding GitHub.CanManage}" />
+                                        <Button Content="Reconnect" Click="Reconnect_Click" IsVisible="{Binding GitHub.IsConnected}" IsEnabled="{Binding GitHub.CanConnect}" />
+                                        <Button Content="Check Connection" Click="ReloadRepositories_Click" IsEnabled="{Binding GitHub.CanReload}" />
+                                        <Button IsVisible="{Binding GitHub.IsConnected}" Click="OpenRepository_Click">
+                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                <TextBlock Text="Open in Browser" />
+                                                <Path Classes="icon" Data="{StaticResource IconExternal}" />
+                                            </StackPanel>
+                                        </Button>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="10">
+                                        <Button Content="Manage GitHub Access" Click="ManageAccess_Click" />
+                                        <Button Content="Disconnect" Click="Disconnect_Click" IsEnabled="{Binding GitHub.CanManage}" />
+                                        <Button Content="Cancel" Click="CancelGitHub_Click" IsVisible="{Binding GitHub.IsBusy}" />
+                                    </StackPanel>
+                                    <StackPanel IsVisible="{Binding ShowDisconnected}" Spacing="10">
+                                        <TextBlock Classes="muted" Text="Connect your GitHub account to sync your saves across devices." />
+                                        <Button Classes="primary" Content="Connect with GitHub" Click="SettingsConnect_Click" IsEnabled="{Binding GitHub.CanConnect}" HorizontalAlignment="Left" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+                            <Border Classes="tile">
+                                <StackPanel Spacing="12">
+                                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+                                        <Border Classes="iconTile accent">
+                                            <Path Classes="iconAccent" Data="{StaticResource IconCloud}" />
+                                        </Border>
+                                        <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
+                                            <TextBlock Classes="cardTitle" Text="Cloud Collection" />
+                                            <TextBlock Classes="mutedSmall" Text="{Binding CloudFileSummary}" />
+                                        </StackPanel>
+                                        <Button Grid.Column="2" Click="OpenCloudFiles_Click" IsEnabled="{Binding CanOpenCloudFiles}" Content="View Cloud Files" />
+                                    </Grid>
+                                    <Border Classes="divider" />
+                                    <TextBlock Classes="mutedSmall" Text="{Binding ComparisonStatus}" />
+                                    <TextBlock Classes="mutedSmall" Text="{Binding Cloud.Notice}" />
+                                    <SelectableTextBlock Text="{Binding CloudRevisionLine}" Classes="mono" IsVisible="{Binding HasCloudRevisionLine}" />
+                                    <ProgressBar IsIndeterminate="True" IsVisible="{Binding Cloud.IsBusy}" />
+                                    <StackPanel Orientation="Horizontal" Spacing="10">
+                                        <Button Content="Check Cloud Files" Click="CheckCloud_Click" IsEnabled="{Binding CanCheckCloud}" />
+                                        <Button Content="Cancel Cloud Check" Click="CancelCloud_Click" IsVisible="{Binding Cloud.IsBusy}" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+
+                        <!-- Saves -->
+                        <StackPanel IsVisible="{Binding IsSavesSettings}" Spacing="14">
+                            <StackPanel Spacing="5">
+                                <TextBlock Classes="sectionTitle" Text="Save Folder" />
+                                <TextBlock Classes="muted" Text="Choose the folder that contains your Project Diablo 2 save files." />
+                            </StackPanel>
+                            <Border Classes="card">
+                                <StackPanel Spacing="14">
+                                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+                                        <Border Classes="iconTile violet">
+                                            <Path Classes="iconViolet" Data="{StaticResource IconFolder}" />
+                                        </Border>
+                                        <SelectableTextBlock Grid.Column="1" Text="{Binding Local.SelectedPath}" VerticalAlignment="Center" FontSize="12.5" />
+                                        <Button Grid.Column="2" Click="SelectFolder_Click" IsEnabled="{Binding Local.CanSelect}" IsVisible="{Binding ShowFolderEditor}" Content="Choose Folder" />
+                                    </Grid>
+                                    <ProgressBar IsIndeterminate="True" IsVisible="{Binding Local.IsBusy}" />
+                                    <Border Classes="nested" IsVisible="{Binding Local.HasInspection}">
+                                        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+                                            <Path Classes="iconSuccess" Data="{StaticResource IconCheckCircle}" />
+                                            <StackPanel Grid.Column="1" Spacing="3">
+                                                <TextBlock Text="{Binding Local.StateLabel}" FontWeight="SemiBold" />
+                                                <TextBlock Classes="mutedSmall" Text="{Binding Local.Status}" />
+                                                <TextBlock Classes="mutedSmall" Text="{Binding Local.CountSummary}" />
+                                            </StackPanel>
+                                            <StackPanel Grid.Column="2" Spacing="6" HorizontalAlignment="Right">
+                                                <TextBlock Classes="mutedSmall" Text="{Binding Local.LastInspection}" HorizontalAlignment="Right" />
+                                                <Button Content="Run Inspection Again" Click="Inspect_Click" IsEnabled="{Binding Local.CanRefresh}" HorizontalAlignment="Right" />
+                                            </StackPanel>
+                                        </Grid>
+                                    </Border>
+                                    <TextBlock Classes="mutedSmall" Text="{Binding Local.SettingsNotice}" IsVisible="{Binding Local.HasSettingsNotice}" />
+                                    <TextBlock Classes="mutedSmall" Text="{Binding Local.PickerNotice}" IsVisible="{Binding Local.HasPickerNotice}" />
+                                    <StackPanel Spacing="8" IsVisible="{Binding HasLocalFiles}">
+                                        <TextBlock Classes="label" Text="FILES FOUND" />
+                                        <ItemsControl ItemsSource="{Binding LocalRows}">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate>
+                                                    <UniformGrid Columns="2" />
+                                                </ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate x:DataType="vm:FileRow">
+                                                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="9" Margin="0,4,14,4">
+                                                        <Path Classes="iconSubtle" Data="{StaticResource IconFile}" />
+                                                        <TextBlock Grid.Column="1" Text="{Binding Name}" FontSize="12" VerticalAlignment="Center"
+                                                                   TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
+                                                        <Border Grid.Column="2" Classes="badge" Background="{Binding BadgeBackground}" HorizontalAlignment="Right">
+                                                            <TextBlock Text="{Binding TypeLabel}" Foreground="{Binding BadgeForeground}" FontSize="10.5" FontWeight="SemiBold" />
+                                                        </Border>
+                                                    </Grid>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </StackPanel>
+                                    <Border Classes="divider" />
+                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+                                        <Path Classes="iconSmall" Data="{StaticResource IconInfo}" VerticalAlignment="Top" Margin="0,2,0,0" />
+                                        <TextBlock Grid.Column="1" Classes="mutedSmall" Text="PD2 Cloud treats all files in this folder as save data. Files are never modified during inspection and stay on your device until you choose to upload." />
+                                    </Grid>
+                                    <Border Classes="nested" IsVisible="{Binding Local.HasInspection}">
+                                        <StackPanel>
+                                            <ToggleButton x:Name="SavesDetailsToggle" Classes="details">
+                                                <Grid ColumnDefinitions="Auto,*,Auto">
+                                                    <Path Classes="iconSmall" Data="{StaticResource IconInfo}" />
+                                                    <TextBlock Grid.Column="1" Margin="9,0,0,0" Text="Inspection Details" FontSize="12.5" VerticalAlignment="Center" />
+                                                    <Path Grid.Column="2" Classes="iconSmall" Data="{StaticResource IconChevronDown}" />
+                                                </Grid>
+                                            </ToggleButton>
+                                            <StackPanel Spacing="12" Margin="0,14,0,0" IsVisible="{Binding #SavesDetailsToggle.IsChecked}">
+                                                <ItemsControl ItemsSource="{Binding Local.Issues}">
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate x:DataType="core:ValidationIssue">
+                                                            <StackPanel Margin="0,5" Spacing="2">
+                                                                <TextBlock Text="{Binding RelativePath}" FontWeight="SemiBold" FontSize="12" />
+                                                                <TextBlock Text="{Binding Message}" Classes="mutedSmall" />
+                                                            </StackPanel>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                                <TextBlock Classes="label" Text="COLLECTION FINGERPRINT" />
+                                                <SelectableTextBlock Text="{Binding Local.CollectionFingerprint}" Classes="mono" />
+                                                <Button Content="View Save Files" Click="OpenLocalFiles_Click" IsEnabled="{Binding CanOpenLocalFiles}" HorizontalAlignment="Left" />
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </Border>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </StackPanel>
+
+                    <Border Classes="nested" IsVisible="{Binding HasBrowserNotice}">
+                        <TextBlock Classes="mutedSmall" Text="{Binding BrowserNotice}" />
+                    </Border>
+
+                    <TextBlock Classes="mutedSmall" Text="{Binding Local.SettingsNotice}" IsVisible="{Binding IsConnect}" />
                 </StackPanel>
-                <TextBlock Text="{Binding Local.SettingsNotice}" IsVisible="{Binding IsConnect}" Classes="muted" />
-                <TextBlock Text="{Binding BrowserNotice}" IsVisible="{Binding HasBrowserNotice}" />
-            </StackPanel>
-        </ScrollViewer>
+            </ScrollViewer>
+        </Grid>
     </Grid>
 </Window>

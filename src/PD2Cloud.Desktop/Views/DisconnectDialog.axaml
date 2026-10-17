@@ -1,13 +1,21 @@
 <Window xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="PD2Cloud.Desktop.Views.DisconnectDialog" Title="Disconnect GitHub?"
-        Width="460" MinWidth="360" SizeToContent="Height" CanResize="False"
-        WindowStartupLocation="CenterOwner" Background="#1E2530">
-    <StackPanel Margin="26" Spacing="20">
-        <TextBlock Text="Disconnect GitHub?" FontSize="23" FontWeight="SemiBold" />
-        <TextBlock Text="Disconnect your GitHub account from PD2 Cloud? Your local saves and GitHub repository will not be deleted." TextWrapping="Wrap" />
-        <WrapPanel>
-            <Button Content="Keep Connected" Click="Cancel_Click" IsCancel="True" IsDefault="True" Padding="14,10" Margin="0,0,12,12" />
-            <Button Content="Disconnect" Click="Confirm_Click" Padding="14,10" Margin="0,0,0,12" />
-        </WrapPanel>
-    </StackPanel>
+        Width="460" MinWidth="380" SizeToContent="Height" CanResize="False"
+        WindowStartupLocation="CenterOwner" Background="{StaticResource PageBg}">
+    <Border Background="{StaticResource CardBg}" BorderBrush="{StaticResource Stroke}" BorderThickness="1"
+            CornerRadius="12" Margin="18" Padding="22">
+        <StackPanel Spacing="16">
+            <StackPanel Orientation="Horizontal" Spacing="10">
+                <Border Classes="iconTile" Width="32" Height="32" CornerRadius="9">
+                    <Path Classes="icon" Data="{StaticResource IconShield}" />
+                </Border>
+                <TextBlock Text="Disconnect GitHub?" FontSize="17" FontWeight="SemiBold" VerticalAlignment="Center" />
+            </StackPanel>
+            <TextBlock Classes="muted" Text="Disconnect your GitHub account from PD2 Cloud? Your local saves and GitHub repository will not be deleted." />
+            <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right">
+                <Button Content="Keep Connected" Click="Cancel_Click" IsCancel="True" IsDefault="True" />
+                <Button Content="Disconnect" Click="Confirm_Click" />
+            </StackPanel>
+        </StackPanel>
+    </Border>
 </Window>

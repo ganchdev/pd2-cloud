@@ -1,5 +1,7 @@
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using Avalonia.Input;
 using Avalonia.Input.Platform;
 using PD2Cloud.Desktop.ViewModels;
 using System.ComponentModel;
@@ -14,6 +16,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        ConfigureWindowChrome();
         Opened += async (_, _) =>
         {
             if (Model is { } model)
@@ -28,6 +31,30 @@ public partial class MainWindow : Window
             if (Model is { } model) { model.PropertyChanged -= WorkflowChanged; model.GitHub.PropertyChanged -= GitHubChanged; model.Dispose(); }
         };
     }
+
+    // Draw the app's own title bar inside the extended client area, leaving room for the platform's
+    // own window buttons: traffic lights on macOS (left), caption buttons on Windows (right).
+    private void ConfigureWindowChrome()
+    {
+        if (OperatingSystem.IsMacOS())
+        {
+            ExtendClientAreaToDecorationsHint = true;
+            ExtendClientAreaTitleBarHeightHint = 48;
+            TitleBarLeft.Margin = new Thickness(76, 0, 0, 0);
+        }
+        else if (OperatingSystem.IsWindows())
+        {
+            ExtendClientAreaToDecorationsHint = true;
+            ExtendClientAreaTitleBarHeightHint = 48;
+            TitleBarActions.Margin = new Thickness(0, 0, 140, 0);
+        }
+    }
+
+    private void TitleBar_PointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed) BeginMoveDrag(e);
+    }
+
     private void WorkflowChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (Model is { } model && lastScreen != model.Screen)
@@ -57,9 +84,14 @@ public partial class MainWindow : Window
     }
     private async void GetStarted_Click(object? sender, RoutedEventArgs e) { if (Model is { } m) await m.GetStartedAsync(); }
     private void Settings_Click(object? sender, RoutedEventArgs e) => Model?.OpenSettings();
+    private void TitleBarSettings_Click(object? sender, RoutedEventArgs e) => Model?.OpenSettings();
+    private void SettingsNav_Click(object? sender, RoutedEventArgs e) => Model?.OpenSettings();
+    private void SavesNav_Click(object? sender, RoutedEventArgs e) => Model?.Dashboard();
     private void GeneralSettings_Click(object? sender, RoutedEventArgs e) => Model?.OpenSettings(SettingsSection.General);
     private void SavesSettings_Click(object? sender, RoutedEventArgs e) => Model?.OpenSettings(SettingsSection.Saves);
     private void Dashboard_Click(object? sender, RoutedEventArgs e) => Model?.Dashboard();
+    private void OpenLocalFiles_Click(object? sender, RoutedEventArgs e) => Model?.OpenLocalFiles();
+    private void OpenCloudFiles_Click(object? sender, RoutedEventArgs e) => Model?.OpenCloudFiles();
     private void SettingsConnect_Click(object? sender, RoutedEventArgs e) => Model?.BeginConnection();
     private void Reconnect_Click(object? sender, RoutedEventArgs e) => Model?.BeginConnection(reconnect: true);
     private async void Back_Click(object? sender, RoutedEventArgs e) { if (Model is { } m) await m.BackAsync(); }
