@@ -39,8 +39,12 @@ public sealed class GitHubConnectionTests
     {
         public string? Value;
         public bool FailRead, FailWrite, FailDelete;
-        public int Writes, Deletes;
-        public Task<string?> ReadAsync(CancellationToken ct) => FailRead ? Task.FromException<string?>(new IOException("secret-error")) : Task.FromResult(Value);
+        public int Reads, Writes, Deletes;
+        public Task<string?> ReadAsync(CancellationToken ct)
+        {
+            Reads++;
+            return FailRead ? Task.FromException<string?>(new IOException("secret-error")) : Task.FromResult(Value);
+        }
         public Task WriteAsync(string value, CancellationToken ct)
         {
             ct.ThrowIfCancellationRequested();
@@ -180,6 +184,19 @@ public sealed class GitHubConnectionTests
         var store = new Store { Value = JsonSerializer.Serialize(Credentials()) };
         var overview = await Connection(new Handler("""{"login":"alice"}""", Installations, Repos(Repo(2))), store).LoadAsync(default);
         Assert.Null(overview!.Selected); Assert.Equal(0, store.Writes);
+    }
+
+    [Fact]
+    public async Task SecureStoreIsReadAtMostOncePerConnectionAndCachedForLaterOperations()
+    {
+        var store = new Store { Value = JsonSerializer.Serialize(Credentials()) };
+        var handler = new Handler(
+            """{"login":"alice"}""", Installations, Repos(Repo()),
+            """{"login":"alice"}""", Installations, Repos(Repo()));
+        var connection = Connection(handler, store);
+        await connection.LoadAsync(default);
+        await connection.LoadAsync(default);
+        Assert.Equal(1, store.Reads);
     }
 
     [Fact]

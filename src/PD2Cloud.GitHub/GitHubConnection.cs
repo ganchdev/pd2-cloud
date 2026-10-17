@@ -7,6 +7,10 @@ public sealed partial class GitHubConnection(GitHubApi api, ICredentialStore sto
 {
     private readonly SemaphoreSlim gate = new(1, 1);
     private readonly TimeProvider clock = timeProvider ?? TimeProvider.System;
+    // Session cache: the native store is read at most once per connection instance.
+    // A null value with hasCachedCredentials means "confirmed no stored credentials".
+    private ConnectionCredentials? cachedCredentials;
+    private bool hasCachedCredentials;
     public bool IsConfigured => api.IsConfigured;
 
     public async Task ConnectAsync(Action<DeviceAuthorization> showCode, CancellationToken ct)
@@ -14,7 +18,7 @@ public sealed partial class GitHubConnection(GitHubApi api, ICredentialStore sto
         await gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            // Verify native storage is reachable before starting authorization. No secret is cached in memory.
+            // Verify native storage is reachable before starting authorization.
             _ = await store.ReadAsync(ct).ConfigureAwait(false);
             var credentials = await api.AuthorizeAsync(showCode, ct).ConfigureAwait(false);
             _ = await api.AccountAsync(credentials.AccessToken, ct).ConfigureAwait(false);
@@ -61,7 +65,12 @@ public sealed partial class GitHubConnection(GitHubApi api, ICredentialStore sto
     public async Task DisconnectAsync(CancellationToken ct)
     {
         await gate.WaitAsync(ct).ConfigureAwait(false);
-        try { await store.DeleteAsync(ct).ConfigureAwait(false); }
+        try
+        {
+            await store.DeleteAsync(ct).ConfigureAwait(false);
+            cachedCredentials = null;
+            hasCachedCredentials = true;
+        }
         finally { gate.Release(); }
     }
 
@@ -101,15 +110,36 @@ public sealed partial class GitHubConnection(GitHubApi api, ICredentialStore sto
 
     private async Task<ConnectionCredentials?> ReadAsync(CancellationToken ct)
     {
+        if (hasCachedCredentials) return Clone(cachedCredentials);
         var json = await store.ReadAsync(ct).ConfigureAwait(false);
-        if (json is null) return null;
+        if (json is null)
+        {
+            cachedCredentials = null;
+            hasCachedCredentials = true;
+            return null;
+        }
         ConnectionCredentials? credentials;
         try { credentials = JsonSerializer.Deserialize<ConnectionCredentials>(json); }
         catch (JsonException) { throw new ConnectionException("Stored GitHub credentials are invalid. Disconnect to remove them."); }
         if (credentials is null || credentials.SchemaVersion != 1 || credentials.ClientId != api.ClientId || string.IsNullOrWhiteSpace(credentials.AccessToken))
             throw new ConnectionException("Stored GitHub credentials do not match this app. Disconnect and connect again.");
-        return credentials;
+        cachedCredentials = credentials;
+        hasCachedCredentials = true;
+        return Clone(credentials);
     }
+
+    // Callers may mutate the returned instance (for example, the selected repository),
+    // so the cached copy is never handed out by reference.
+    private static ConnectionCredentials? Clone(ConnectionCredentials? credentials) => credentials is null ? null : new()
+    {
+        SchemaVersion = credentials.SchemaVersion,
+        ClientId = credentials.ClientId,
+        AccessToken = credentials.AccessToken,
+        RefreshToken = credentials.RefreshToken,
+        ExpiresAt = credentials.ExpiresAt,
+        RefreshExpiresAt = credentials.RefreshExpiresAt,
+        Repository = credentials.Repository,
+    };
 
     private async Task<ConnectionCredentials> CurrentAsync(ConnectionCredentials credentials, CancellationToken ct)
     {
@@ -120,7 +150,12 @@ public sealed partial class GitHubConnection(GitHubApi api, ICredentialStore sto
         return refreshed;
     }
 
-    private Task SaveAsync(ConnectionCredentials credentials, CancellationToken ct) => store.WriteAsync(JsonSerializer.Serialize(credentials), ct);
+    private async Task SaveAsync(ConnectionCredentials credentials, CancellationToken ct)
+    {
+        await store.WriteAsync(JsonSerializer.Serialize(credentials), ct).ConfigureAwait(false);
+        cachedCredentials = Clone(credentials);
+        hasCachedCredentials = true;
+    }
 }
 
 public sealed record ConnectionOverview(string Account, IReadOnlyList<RepositoryChoice> Repositories, RepositoryChoice? Selected, bool SelectionUnavailable = false);
