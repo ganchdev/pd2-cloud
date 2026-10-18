@@ -567,6 +567,25 @@ public sealed class CollectionUploadTests : IDisposable
         Assert.Single(server.Writes, p => p.StartsWith("PATCH", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public async Task RepairReplacesAnUnverifiableCollectionAndPreservesUnrelatedEntries()
+    {
+        var op = await Store().PrepareAsync(Source);
+        var server = new Server("incompatible");
+        var unrelated = server.Expand(server.Commits[Parent].Tree)
+            .Where(e => !e.Path.StartsWith(CloudStorage.Root, StringComparison.Ordinal)).OrderBy(e => e.Path, StringComparer.Ordinal).ToArray();
+        var result = await new CollectionUploader(Store(), Connection(server), SyncStateStore())
+            .UploadAsync(Bootstrap(op, RepositoryBootstrapCase.Repair, Parent));
+        Assert.Equal(UploadStatus.Published, result.Status);
+        Assert.Equal(Parent, server.Commits[result.CandidateCommit!].Parent);
+        var repaired = CloudCollectionReader.Verify(new RepositorySnapshot(Repository, server.Head, server.Commits[server.Head!].Tree,
+            server.Expand(server.Commits[server.Head!].Tree), server.Blobs));
+        Assert.Equal(RepositoryContent.ManagedCollection, repaired.Content);
+        Assert.Equal(op.Files, repaired.Collection!.Manifest!.Files);
+        Assert.Equal(unrelated, server.Expand(server.Commits[server.Head!].Tree)
+            .Where(e => !e.Path.StartsWith(CloudStorage.Root, StringComparison.Ordinal)).OrderBy(e => e.Path, StringComparer.Ordinal));
+    }
+
     [Theory]
     [InlineData("unborn", RepositoryBootstrapCase.None)]
     [InlineData("unborn", RepositoryBootstrapCase.EmptyTree)]
@@ -578,6 +597,8 @@ public sealed class CollectionUploadTests : IDisposable
     [InlineData("incompatible", RepositoryBootstrapCase.Unrelated)]
     [InlineData("managed", RepositoryBootstrapCase.UnbornRepository)]
     [InlineData("managed", RepositoryBootstrapCase.Unrelated)]
+    [InlineData("managed", RepositoryBootstrapCase.Repair)]
+    [InlineData("unrelated", RepositoryBootstrapCase.Repair)]
     public async Task BootstrapRequiresTheExactReviewedClassificationAndNeverWrites(string classification, RepositoryBootstrapCase bootstrap)
     {
         var op = await Store().PrepareAsync(Source);

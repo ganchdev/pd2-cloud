@@ -172,7 +172,7 @@ public sealed class SyncWorkflowTests : IDisposable
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public async Task ChangesOnBothSidesAskWhichCopyToKeep(bool keepLocal)
+    public async Task ChangesOnBothSidesOpenRestoreToChooseWhichCopyToKeep(bool push)
     {
         // The cloud already holds different saves and this PC has never synced.
         var server = new CollectionUploadTests.Server("populated");
@@ -181,23 +181,25 @@ public sealed class SyncWorkflowTests : IDisposable
         Assert.Equal(SyncState.Conflict, workflow.Sync.State);
         Assert.Equal("Unsynced", workflow.SyncStatus);
 
-        // Sync only asks; nothing is transferred until a copy is chosen. Cancel keeps both untouched.
+        // Sync never decides a conflict; it opens Restore. Leaving Restore changes nothing.
         await workflow.SyncAsync();
-        Assert.True(workflow.IsConflictChoiceOpen);
-        Assert.False(workflow.CanSync);
-        workflow.CancelConflict();
-        Assert.False(workflow.IsConflictChoiceOpen);
-        await workflow.SyncAsync();
+        Assert.True(workflow.IsRestore);
+        Assert.True(workflow.CanPull);
+        Assert.True(workflow.CanPush);
+        await workflow.BackAsync();
+        Assert.True(workflow.IsDashboard);
         Assert.Empty(server.Writes);
         Assert.Equal(SourceBytes, await File.ReadAllBytesAsync(Path.Combine(Source, "nested", "save.any")));
 
-        if (keepLocal) await workflow.KeepLocalAsync();
-        else await workflow.KeepCloudAsync();
+        workflow.OpenRestore();
+        if (push) await workflow.PushAsync();
+        else await workflow.PullAsync();
 
-        Assert.False(workflow.IsConflictChoiceOpen);
+        Assert.True(workflow.IsDashboard);
+        Assert.False(workflow.IsSyncMessageError);
         Assert.Equal(SyncState.InSync, workflow.Sync.State);
         var cloud = server.Expand(server.Commits[server.Head!].Tree);
-        if (keepLocal)
+        if (push)
         {
             Assert.Equal(1, Patches(server));
             Assert.Contains(cloud, e => e.Path == CloudStorage.FilesPath + "/nested/save.any");
@@ -212,6 +214,58 @@ public sealed class SyncWorkflowTests : IDisposable
             var backup = Assert.Single(Directory.GetDirectories(Path.Combine(App, "replacements")));
             Assert.Equal(SourceBytes, await File.ReadAllBytesAsync(Path.Combine(backup, "files", "nested", "save.any")));
         }
+    }
+
+    [Fact]
+    public async Task RestoreCanPullOrPushEvenWhenSyncHasNothingToDo()
+    {
+        var server = new CollectionUploadTests.Server();
+        using var workflow = await CreateAsync(server);
+        await workflow.InitializeAsync();
+        await workflow.SyncAsync();
+        Assert.Equal(SyncState.InSync, workflow.Sync.State);
+        Assert.False(workflow.CanSync);
+        Assert.True(workflow.CanRestore);
+
+        // An explicit pull reinstalls the cloud copy over a local edit that Sync would otherwise upload.
+        await File.WriteAllTextAsync(Path.Combine(Source, "nested", "save.any"), "unwanted local edit");
+        await workflow.RefreshAsync();
+        Assert.Equal(SyncState.Upload, workflow.Sync.State);
+        workflow.OpenRestore();
+        Assert.True(workflow.IsRestore);
+        await workflow.PullAsync();
+        Assert.True(workflow.IsDashboard);
+        Assert.Equal(SourceBytes, await File.ReadAllBytesAsync(Path.Combine(Source, "nested", "save.any")));
+        Assert.Equal(SyncState.InSync, workflow.Sync.State);
+        Assert.Equal(1, Patches(server));
+    }
+
+    [Fact]
+    public async Task UnreadableCloudSavesBlockSyncButRestoreCanReplaceThem()
+    {
+        var server = new CollectionUploadTests.Server("incompatible");
+        var unrelated = server.Expand(server.Commits[server.Head!].Tree)
+            .Where(e => !e.Path.StartsWith(CloudStorage.Root, StringComparison.Ordinal)).OrderBy(e => e.Path, StringComparer.Ordinal).ToArray();
+        using var workflow = await CreateAsync(server);
+        await workflow.InitializeAsync();
+        Assert.Equal(SyncState.Unavailable, workflow.Sync.State);
+        Assert.False(workflow.CanSync);
+        Assert.Contains("Use Restore", workflow.SyncDetail);
+        await workflow.SyncAsync();
+        Assert.Empty(server.Writes);
+
+        workflow.OpenRestore();
+        Assert.True(workflow.IsCloudUnreadable);
+        Assert.False(workflow.CanPull);
+        Assert.Contains("can't be verified", workflow.PullReason);
+        Assert.True(workflow.CanPush);
+        await workflow.PushAsync();
+
+        Assert.True(workflow.IsDashboard);
+        Assert.Equal(SyncState.InSync, workflow.Sync.State);
+        var after = server.Expand(server.Commits[server.Head!].Tree);
+        Assert.Equal(unrelated, after.Where(e => !e.Path.StartsWith(CloudStorage.Root, StringComparison.Ordinal)).OrderBy(e => e.Path, StringComparer.Ordinal));
+        Assert.Contains(after, e => e.Path == CloudStorage.FilesPath + "/nested/save.any");
     }
 
     [Fact]
@@ -279,19 +333,6 @@ public sealed class SyncWorkflowTests : IDisposable
         await workflow.CheckCloudAsync();
         Assert.Empty(server.Writes);
         Assert.False(File.Exists(SyncStatePath));
-    }
-
-    [Fact]
-    public async Task IncompatibleRepositoryCannotSync()
-    {
-        var server = new CollectionUploadTests.Server("incompatible");
-        using var workflow = await CreateAsync(server);
-        await workflow.InitializeAsync();
-        Assert.Equal(SyncState.Unavailable, workflow.Sync.State);
-        Assert.False(workflow.CanSync);
-        Assert.Contains("cannot read", workflow.SyncReason);
-        await workflow.SyncAsync();
-        Assert.Empty(server.Writes);
     }
 
     [Fact]

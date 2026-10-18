@@ -1,6 +1,6 @@
 # Sync
 
-The dashboard has one **Sync** button. Refresh checks the save folder and the cloud copy; only Sync transfers files.
+The dashboard has a **Sync** button that picks the direction itself, and a **Restore** button for choosing it yourself. Refresh checks the save folder and the cloud copy; only Sync and Restore transfer files.
 
 ## What Sync does
 
@@ -14,13 +14,23 @@ Sync compares three inventories: the local save folder, the verified cloud colle
 | Only the cloud changed since the last sync | Unsynced | Downloads (local files backed up first) |
 | No sync recorded yet: local folder empty, cloud populated | Unsynced | Downloads |
 | No sync recorded yet: local populated, cloud collection empty | Unsynced | Uploads |
-| Both changed, or never synced and both populated and different | Unsynced | Asks: **Keep This PC's Saves** or **Keep Cloud Saves** |
+| Both changed, or never synced and both populated and different | Unsynced | Opens Restore so you choose Pull or Push |
 | Local folder and cloud storage both empty | Nothing to sync yet | Disabled |
-| Folder, connection or repository not usable, or incompatible PD2 Cloud data | Needs attention | Disabled, with the reason |
+| Cloud saves can't be read (changed outside PD2 Cloud, e.g. edited on GitHub, or written by a newer version) | Needs attention | Disabled; Restore can push this PC's saves to replace them |
+| Folder, connection or repository not usable | Needs attention | Disabled, with the reason |
 
 Files are compared by path, size and SHA-256. Deleting or renaming a file is an ordinary change on the side where it happened and carries over to the other side. Nothing is merged per file; the chosen side replaces the other as a whole.
 
-A typical two-PC rhythm:
+## Restore
+
+Restore offers two whole-collection choices at any time, regardless of what Sync would do:
+
+- **Pull cloud → this PC** runs the download below. It needs readable cloud saves.
+- **Push this PC → cloud** runs the upload below. It also sets up empty or unrelated repositories, and it can replace cloud saves that no longer verify, for example after a file was deleted in the GitHub web UI while `manifest.json` still lists it. Earlier versions stay in the repository's Git history.
+
+Edit the cloud saves only through PD2 Cloud. Changing files in `.pd2cloud/` directly breaks the manifest, and the cloud then counts as unreadable until a push replaces it.
+
+## A typical two-PC rhythm
 
 1. PC1: Sync sets up the repository and uploads. Play, quit, Sync → upload.
 2. PC2 (empty save folder): Sync → download. Play, quit, Sync → upload.

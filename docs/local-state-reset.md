@@ -52,7 +52,7 @@ Instead of deleting the native entry by hand, launch the app and use **Settings 
 ## Cautions
 
 - **Download backups are destructive to discard.** `replacements/` holds copies of your save folder from before each download. Copy out anything you may still need before deleting it.
-- Deleting `local-sync-state.json` forgets the last sync. If local and cloud files already match, the next check records the sync again; otherwise, when both sides have files and differ, Sync treats them as a conflict and asks which copy to keep.
+- Deleting `local-sync-state.json` forgets the last sync. If local and cloud files already match, the next check records the sync again; otherwise, when both sides have files and differ, Sync treats them as a conflict and opens Restore.
 - Do not delete only `settings.json` to "restart setup": a leftover `local-sync-state.json` can still describe a prior pairing. Use the full reset above.
 
 ## Expected result

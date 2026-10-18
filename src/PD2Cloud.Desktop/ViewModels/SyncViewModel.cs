@@ -12,7 +12,8 @@ public enum SyncState { Unavailable, NothingToSync, InSync, Upload, Download, In
 /// <summary>
 /// One Sync action. The local folder and the verified cloud collection are compared with the files recorded at the
 /// last sync: only local changes upload, only cloud changes download (after a local backup), and changes on both
-/// sides ask which copy to keep. Empty cloud storage is set up by the first upload.
+/// sides are left to Restore. Empty cloud storage is set up by the first upload. Restore pulls or pushes on request,
+/// and push can replace cloud saves that can no longer be verified.
 /// </summary>
 public sealed class SyncViewModel : INotifyPropertyChanged, IDisposable
 {
@@ -22,7 +23,6 @@ public sealed class SyncViewModel : INotifyPropertyChanged, IDisposable
     private readonly IUploadOperations? operations;
     private CancellationTokenSource? operation;
     private bool disposed;
-    private bool conflictOpen;
     private string message = "";
     private bool messageIsError;
 
@@ -51,7 +51,7 @@ public sealed class SyncViewModel : INotifyPropertyChanged, IDisposable
 
     public SyncState State => Evaluate().State;
     public string BlockedReason => Evaluate().Reason;
-    public bool CanSync => operations is not null && !IsBusy && !conflictOpen
+    public bool CanSync => operations is not null && !IsBusy
         && State is SyncState.Upload or SyncState.Download or SyncState.Initialize or SyncState.Conflict;
     public bool IsInSync => !IsBusy && State == SyncState.InSync;
 
@@ -71,14 +71,49 @@ public sealed class SyncViewModel : INotifyPropertyChanged, IDisposable
         SyncState.Upload => "Your saves changed on this PC. Sync uploads them to the cloud.",
         SyncState.Download => "The cloud has newer saves. Sync downloads them to this PC; your current files are backed up first.",
         SyncState.Initialize => "Cloud storage is not set up yet. Sync sets it up and uploads your saves.",
-        SyncState.Conflict => "Your saves changed on this PC and in the cloud since the last sync. Sync asks which copy to keep.",
+        SyncState.Conflict => "Your saves changed on this PC and in the cloud since the last sync. Sync opens Restore so you can choose which copy to keep.",
         _ => BlockedReason
     };
 
     public string LastSyncedLine => Baseline is { } baseline
         ? $"Last synced {baseline.SynchronizedAt.ToLocalTime():dd/MM/yyyy HH:mm}" : "";
 
-    public bool IsConflictChoiceOpen => conflictOpen;
+    // Restore: an explicit whole-collection pull or push, whatever Sync would choose.
+    private CloudReadResult? CurrentCloud => gitHub.SelectedRepository is { } repository && !cloud.IsBusy
+        && cloud.Result is { } result && result.Repository == repository ? result : null;
+    private bool LocalReady => local.Manifest?.IsValid == true && local.SelectedPath is not null && !local.IsBusy;
+
+    public bool CanPull => operations is not null && !IsBusy && LocalReady
+        && CurrentCloud is { Content: RepositoryContent.ManagedCollection, Collection.Manifest: not null };
+    public bool CanPush => operations is not null && !IsBusy && LocalReady && local.Files.Count > 0
+        && CurrentCloud is
+        {
+            Content: RepositoryContent.ManagedCollection or RepositoryContent.EmptyRepository
+            or RepositoryContent.Unrelated or RepositoryContent.Incompatible
+        };
+    public bool CanRestore => CanPull || CanPush;
+    public bool IsCloudUnreadable => CurrentCloud?.Content == RepositoryContent.Incompatible;
+
+    public string PullReason => CanPull || IsBusy ? ""
+        : !LocalReady ? "Check your save folder first."
+        : CurrentCloud is null ? "Refresh to check the cloud saves."
+        : CurrentCloud.Content == RepositoryContent.Incompatible ? "The cloud saves can't be verified, so they can't be downloaded."
+        : "There are no cloud saves to download yet.";
+    public string PushReason => CanPush || IsBusy ? ""
+        : !LocalReady ? "Check your save folder first."
+        : local.Files.Count == 0 ? "Your save folder is empty, so there is nothing to upload."
+        : CurrentCloud is null ? "Refresh to check the cloud saves."
+        : "The repository can't be written right now. Refresh and try again.";
+    public string RestoreSummary
+    {
+        get
+        {
+            var cloudFiles = CurrentCloud?.Collection?.Manifest?.Files.Count;
+            return $"{Files(local.Files.Count)} on this PC · " + (cloudFiles is { } count ? $"{Files(count)} in the cloud"
+                : IsCloudUnreadable ? "cloud saves can't be read" : "no cloud saves yet");
+        }
+    }
+
     public string Message => message;
     public bool HasMessage => message.Length > 0;
     public bool IsMessageError => messageIsError;
@@ -103,6 +138,8 @@ public sealed class SyncViewModel : INotifyPropertyChanged, IDisposable
                     SyncAction.Download => SyncState.Download,
                     _ => SyncState.Conflict
                 }, "");
+            case RepositoryContent.Incompatible:
+                return (SyncState.Unavailable, "The cloud saves can't be read: they were changed outside PD2 Cloud (for example, edited on GitHub) or by a newer version. Use Restore to replace them with this PC's saves.");
             default:
                 return (SyncState.Unavailable, result.Message);
         }
@@ -141,52 +178,27 @@ public sealed class SyncViewModel : INotifyPropertyChanged, IDisposable
         await RefreshStateAsync();
     }
 
-    /// <summary>Runs the action the current state calls for. Returns true when files may have been transferred.</summary>
+    /// <summary>
+    /// Runs the action the current state calls for. Returns true when files may have been transferred. A conflict is
+    /// never decided here; the caller opens Restore instead.
+    /// </summary>
     public async Task<bool> SyncAsync()
     {
-        if (!CanSync || disposed) return false;
-        switch (State)
-        {
-            case SyncState.Conflict:
-                conflictOpen = true;
-                SetMessage("", false);
-                Notify();
-                return false;
-            case SyncState.Download:
-                return await RunAsync(DownloadAsync);
-            default:
-                return await RunAsync(UploadAsync);
-        }
+        if (!CanSync || disposed || State == SyncState.Conflict) return false;
+        return await RunAsync(State == SyncState.Download ? DownloadAsync : UploadAsync);
     }
 
-    public Task<bool> KeepLocalAsync() => ResolveConflictAsync(UploadAsync);
-    public Task<bool> KeepCloudAsync() => ResolveConflictAsync(DownloadAsync);
+    /// <summary>Replaces this PC's saves with the verified cloud saves, after a local backup.</summary>
+    public async Task<bool> PullAsync() => CanPull && !disposed && await RunAsync(DownloadAsync);
 
-    public void CloseConflictChoice()
-    {
-        if (!conflictOpen) return;
-        conflictOpen = false;
-        Notify();
-    }
+    /// <summary>Replaces the cloud saves with this PC's saves, setting up or repairing cloud storage as needed.</summary>
+    public async Task<bool> PushAsync() => CanPush && !disposed && await RunAsync(UploadAsync);
 
     public void ClearMessage()
     {
         if (!HasMessage) return;
         SetMessage("", false);
         Notify();
-    }
-
-    private async Task<bool> ResolveConflictAsync(Func<CancellationToken, Task> action)
-    {
-        if (!conflictOpen || IsBusy || disposed) return false;
-        conflictOpen = false;
-        if (State != SyncState.Conflict)
-        {
-            SetMessage("Your saves or the cloud saves changed. Refresh and sync again.", true);
-            Notify();
-            return false;
-        }
-        return await RunAsync(action);
     }
 
     private async Task<bool> RunAsync(Func<CancellationToken, Task> action)
@@ -224,7 +236,7 @@ public sealed class SyncViewModel : INotifyPropertyChanged, IDisposable
     {
         if (local.Files.Count == 0)
         {
-            SetMessage("Your save folder is empty, so there is nothing to upload. Add your saves, or keep the cloud saves instead.", true);
+            SetMessage("Your save folder is empty, so there is nothing to upload.", true);
             return;
         }
         var repository = gitHub.SelectedRepository!;
@@ -234,6 +246,7 @@ public sealed class SyncViewModel : INotifyPropertyChanged, IDisposable
         {
             RepositoryContent.Unrelated => RepositoryBootstrapCase.Unrelated,
             RepositoryContent.EmptyRepository => result.Commit is null ? RepositoryBootstrapCase.UnbornRepository : RepositoryBootstrapCase.EmptyTree,
+            RepositoryContent.Incompatible => RepositoryBootstrapCase.Repair,
             _ => RepositoryBootstrapCase.None
         };
         var prepared = await operations!.PrepareAsync(local.SelectedPath!, ct);

@@ -1,6 +1,6 @@
 # Safe upload: publication engine
 
-`CollectionUploader` in Remote publishes one prepared local snapshot on top of the exact cloud revision it was compared with. Sync uses it whenever the plan is Upload, when cloud storage needs setting up, and for **Keep This PC's Saves** in a conflict; see [sync](sync.md). The three setup cases are specified in [repository bootstrap](repository-bootstrap.md). A successful publication records the sync in `local-sync-state.json`.
+`CollectionUploader` in Remote publishes one prepared local snapshot on top of the exact cloud revision it was compared with. Sync uses it whenever the plan is Upload, when cloud storage needs setting up, and for a **Restore** push (which can also replace unreadable cloud saves with `RepositoryBootstrapCase.Repair`); see [sync](sync.md). The three setup cases are specified in [repository bootstrap](repository-bootstrap.md). A successful publication records the sync in `local-sync-state.json`.
 
 ## Request and authorization
 

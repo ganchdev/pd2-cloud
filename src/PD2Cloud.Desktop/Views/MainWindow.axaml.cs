@@ -89,7 +89,12 @@ public partial class MainWindow : Window
     private void SavesNav_Click(object? sender, RoutedEventArgs e) => Model?.Dashboard();
     private void GeneralSettings_Click(object? sender, RoutedEventArgs e) => Model?.OpenSettings(SettingsSection.General);
     private void SavesSettings_Click(object? sender, RoutedEventArgs e) => Model?.OpenSettings(SettingsSection.Saves);
-    private void Dashboard_Click(object? sender, RoutedEventArgs e) => Model?.Dashboard();
+    private async void Dashboard_Click(object? sender, RoutedEventArgs e)
+    {
+        if (Model is not { } model) return;
+        if (model.IsRestore) { await model.BackAsync(); return; }
+        model.Dashboard();
+    }
     private void OpenLocalFiles_Click(object? sender, RoutedEventArgs e) => Model?.OpenLocalFiles();
     private void OpenCloudFiles_Click(object? sender, RoutedEventArgs e) => Model?.OpenCloudFiles();
     private void SettingsConnect_Click(object? sender, RoutedEventArgs e) => Model?.BeginConnection();
@@ -112,9 +117,9 @@ public partial class MainWindow : Window
     }
     private void CancelGitHub_Click(object? sender, RoutedEventArgs e) => Model?.GitHub.Cancel();
     private async void Sync_Click(object? sender, RoutedEventArgs e) { if (Model is { } m) await m.SyncAsync(); }
-    private async void KeepLocal_Click(object? sender, RoutedEventArgs e) { if (Model is { } m) await m.KeepLocalAsync(); }
-    private async void KeepCloud_Click(object? sender, RoutedEventArgs e) { if (Model is { } m) await m.KeepCloudAsync(); }
-    private void CancelConflict_Click(object? sender, RoutedEventArgs e) => Model?.CancelConflict();
+    private void Restore_Click(object? sender, RoutedEventArgs e) => Model?.OpenRestore();
+    private async void Pull_Click(object? sender, RoutedEventArgs e) { if (Model is { } m) await m.PullAsync(); }
+    private async void Push_Click(object? sender, RoutedEventArgs e) { if (Model is { } m) await m.PushAsync(); }
     private void CancelCloud_Click(object? sender, RoutedEventArgs e) => Model?.Cloud.Cancel();
     private async void CheckCloud_Click(object? sender, RoutedEventArgs e) { if (Model is { } m) await m.CheckCloudAsync(); }
     private async void OpenAuthorization_Click(object? sender, RoutedEventArgs e) { if (Model is { } m && m.GitHub.HasCode) await OpenBrowserAsync(m.GitHub.VerificationAddress); }

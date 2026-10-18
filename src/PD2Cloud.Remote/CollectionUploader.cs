@@ -12,10 +12,11 @@ public sealed record UploadRequest(string OperationId, string SourceRoot, string
     RepositoryChoice Repository, string PinnedCommit, RepositoryBootstrapCase Bootstrap = RepositoryBootstrapCase.None);
 
 /// <summary>
-/// The pinned repository classification. None replaces an existing managed collection (empty or not). The others
-/// set up cloud storage in a repository that has none yet.
+/// The pinned repository classification. None replaces an existing managed collection (empty or not). Repair
+/// replaces a collection that can no longer be verified, only at the user's explicit request. The others set up
+/// cloud storage in a repository that has none yet.
 /// </summary>
-public enum RepositoryBootstrapCase { None, UnbornRepository, EmptyTree, Unrelated }
+public enum RepositoryBootstrapCase { None, UnbornRepository, EmptyTree, Unrelated, Repair }
 
 public enum UploadStatus { Published, PublishedSourceChanged, NotPublished, ConcurrentUpdate }
 public sealed record UploadResult(UploadStatus Status, string? CandidateCommit);
@@ -27,6 +28,7 @@ public sealed class CollectionUploader(OperationPreparationStore preparations, G
     private const string InitializeDirection = "Initialize";
     private const string BootstrapDirection = "Bootstrap";
     private const string AdoptDirection = "Adopt";
+    private const string RepairDirection = "Repair";
     // Local-only placeholder used to round-trip verify a generated tree for an unborn repository before any object is posted.
     private const string UnbornVerificationCommit = "0000000000000000000000000000000000000000";
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -136,6 +138,10 @@ public sealed class CollectionUploader(OperationPreparationStore preparations, G
                 Require(original.Commit == request.PinnedCommit && verified.Content == RepositoryContent.EmptyRepository,
                     "The repository changed. Refresh and sync again; nothing was written.");
                 break;
+            case RepositoryBootstrapCase.Repair:
+                Require(original.Commit == request.PinnedCommit && verified.Content == RepositoryContent.Incompatible,
+                    "The repository changed. Refresh and try again; nothing was written.");
+                break;
             case RepositoryBootstrapCase.Unrelated:
                 Require(original.Commit == request.PinnedCommit && verified.Content == RepositoryContent.Unrelated,
                     "The repository changed. Refresh and sync again; nothing was written.");
@@ -151,6 +157,7 @@ public sealed class CollectionUploader(OperationPreparationStore preparations, G
         RepositoryBootstrapCase.UnbornRepository => InitializeDirection,
         RepositoryBootstrapCase.EmptyTree => BootstrapDirection,
         RepositoryBootstrapCase.Unrelated => AdoptDirection,
+        RepositoryBootstrapCase.Repair => RepairDirection,
         _ => throw new RecoveryBlockedException("Unsupported bootstrap direction.")
     };
 

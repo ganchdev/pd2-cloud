@@ -5,7 +5,7 @@ using PD2Cloud.Remote;
 
 namespace PD2Cloud.Desktop.ViewModels;
 
-public enum SetupScreen { Loading, Welcome, Connect, Authorize, Repository, Folder, Dashboard, Files, Settings }
+public enum SetupScreen { Loading, Welcome, Connect, Authorize, Repository, Folder, Dashboard, Files, Settings, Restore }
 public enum SettingsSection { General, GitHub, Saves }
 public enum ConnectionJourney { Onboarding, Connect, Reconnect, ChangeRepository }
 
@@ -46,6 +46,7 @@ public sealed class SetupWorkflowViewModel : INotifyPropertyChanged, IDisposable
     public bool IsDashboard => Screen == SetupScreen.Dashboard;
     public bool IsSettings => Screen == SetupScreen.Settings;
     public bool IsFiles => Screen == SetupScreen.Files;
+    public bool IsRestore => Screen == SetupScreen.Restore;
     public bool IsGeneralSettings => IsSettings && Section == SettingsSection.General;
     public bool IsGitHubSettings => IsSettings && Section == SettingsSection.GitHub;
     public bool IsSavesSettings => IsSettings && Section == SettingsSection.Saves;
@@ -118,10 +119,10 @@ public sealed class SetupWorkflowViewModel : INotifyPropertyChanged, IDisposable
     public IReadOnlyList<FileRow> LocalRows => LocalFileGroups.SelectMany(group => group.Rows).ToArray();
 
     // Shell chrome state.
-    public bool IsSavesNavActive => IsDashboard || IsFiles;
-    public bool CanNavigateSaves => Local.SetupCompleted || IsDashboard || IsFiles;
+    public bool IsSavesNavActive => IsDashboard || IsFiles || IsRestore;
+    public bool CanNavigateSaves => Local.SetupCompleted || IsDashboard || IsFiles || IsRestore;
     public bool ShowTitleBarSettings => IsDashboard;
-    public bool ShowTitleBarBack => IsFiles || IsSettings;
+    public bool ShowTitleBarBack => IsFiles || IsSettings || IsRestore;
     public bool ShowSidebar => true;
 
     public string BaselineLine => Sync.LastSyncedLine;
@@ -146,15 +147,45 @@ public sealed class SetupWorkflowViewModel : INotifyPropertyChanged, IDisposable
     public bool ShowSyncAction => Sync.IsAvailable;
     public bool CanSync => !disposed && Sync.CanSync;
     public string SyncReason => disposed || Sync.CanSync ? "" : Sync.BlockedReason;
-    public bool IsConflictChoiceOpen => Sync.IsConflictChoiceOpen;
     public string SyncMessage => Sync.Message;
     public bool HasSyncMessage => Sync.HasMessage;
     public bool IsSyncMessageError => Sync.IsMessageError;
 
-    public async Task SyncAsync() => await AfterSyncAsync(await Sync.SyncAsync());
-    public async Task KeepLocalAsync() => await AfterSyncAsync(await Sync.KeepLocalAsync());
-    public async Task KeepCloudAsync() => await AfterSyncAsync(await Sync.KeepCloudAsync());
-    public void CancelConflict() => Sync.CloseConflictChoice();
+    // Sync never decides a conflict: it opens Restore so the user picks the copy to keep.
+    public async Task SyncAsync()
+    {
+        if (Sync.CanSync && Sync.State == SyncState.Conflict) { OpenRestore(); return; }
+        await AfterSyncAsync(await Sync.SyncAsync());
+    }
+
+    // Restore: an explicit pull or push. A completed transfer returns to Saves; an error stays here with the message.
+    public bool CanRestore => !disposed && Sync.CanRestore;
+    public bool CanPull => !disposed && Sync.CanPull;
+    public bool CanPush => !disposed && Sync.CanPush;
+    public string PullReason => Sync.PullReason;
+    public bool HasPullReason => PullReason.Length > 0;
+    public string PushReason => Sync.PushReason;
+    public bool HasPushReason => PushReason.Length > 0;
+    public string RestoreSummary => Sync.RestoreSummary;
+    public bool IsCloudUnreadable => Sync.IsCloudUnreadable;
+    public string PushDescription => Sync.IsCloudUnreadable
+        ? "Replaces the unreadable cloud saves with the files in your save folder. Other files in the repository are kept, and earlier versions stay in the repository's history."
+        : "Replaces the cloud saves with the files in your save folder. Other files in the repository are kept, and earlier versions stay in the repository's history.";
+
+    public void OpenRestore()
+    {
+        if (!CanRestore) { Notify(); return; }
+        Sync.ClearMessage();
+        Navigate(SetupScreen.Restore);
+    }
+    public async Task PullAsync() => await AfterRestoreAsync(await Sync.PullAsync());
+    public async Task PushAsync() => await AfterRestoreAsync(await Sync.PushAsync());
+
+    private async Task AfterRestoreAsync(bool transferred)
+    {
+        await AfterSyncAsync(transferred);
+        if (!disposed && transferred && !Sync.IsMessageError) Dashboard();
+    }
 
     // Re-inspect both sides so the dashboard shows the state actually reached.
     private async Task AfterSyncAsync(bool transferred)
@@ -190,7 +221,7 @@ public sealed class SetupWorkflowViewModel : INotifyPropertyChanged, IDisposable
     public void OpenSettings(SettingsSection section = SettingsSection.GitHub) { Section = section; Navigate(SetupScreen.Settings); }
     public void OpenLocalFiles() { if (!CanOpenLocalFiles) return; FilesScope = FileScope.Local; Navigate(SetupScreen.Files); }
     public void OpenCloudFiles() { if (!CanOpenCloudFiles) return; FilesScope = FileScope.Cloud; Navigate(SetupScreen.Files); }
-    public void Dashboard() { Sync.CloseConflictChoice(); Navigate(SetupScreen.Dashboard); }
+    public void Dashboard() => Navigate(SetupScreen.Dashboard);
     public void BeginConnection(bool reconnect = false)
     {
         if (IsSettings || Journey != ConnectionJourney.Onboarding)
@@ -240,7 +271,6 @@ public sealed class SetupWorkflowViewModel : INotifyPropertyChanged, IDisposable
     public async Task RefreshAsync()
     {
         Sync.ClearMessage();
-        Sync.CloseConflictChoice();
         Cloud.Invalidate();
         var checkConnection = !GitHub.IsBusy;
         await Task.WhenAll(Local.RefreshAsync(), GitHub.ReloadAsync());
@@ -263,6 +293,7 @@ public sealed class SetupWorkflowViewModel : INotifyPropertyChanged, IDisposable
     }
     public async Task BackAsync()
     {
+        if (IsRestore) { if (Sync.IsBusy) { Sync.Cancel(); return; } Dashboard(); return; }
         if (IsFiles) { Dashboard(); return; }
         if (GitHub.IsBusy) { GitHub.Cancel(); return; }
         if (Journey != ConnectionJourney.Onboarding) { OpenSettings(); return; }

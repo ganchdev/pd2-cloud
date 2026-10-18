@@ -370,20 +370,7 @@
                             </StackPanel>
                         </Border>
 
-                        <Border Classes="card" IsVisible="{Binding IsConflictChoiceOpen}">
-                            <StackPanel Spacing="12">
-                                <TextBlock Classes="sectionTitle" Text="Which saves do you want to keep?" />
-                                <TextBlock Classes="muted" TextWrapping="Wrap"
-                                           Text="Your saves changed on this PC and in the cloud since the last sync. Keeping this PC's saves replaces the cloud copy. Keeping the cloud saves replaces the files on this PC; your current files are backed up first." />
-                                <StackPanel Orientation="Horizontal" Spacing="10">
-                                    <Button Classes="primary" Content="Keep This PC's Saves" Click="KeepLocal_Click" />
-                                    <Button Classes="primary" Content="Keep Cloud Saves" Click="KeepCloud_Click" />
-                                    <Button Content="Cancel" Click="CancelConflict_Click" />
-                                </StackPanel>
-                            </StackPanel>
-                        </Border>
-
-                        <Grid ColumnDefinitions="Auto,Auto,*" ColumnSpacing="10">
+                        <Grid ColumnDefinitions="Auto,Auto,Auto,*" ColumnSpacing="10">
                             <Button Classes="primary" IsVisible="{Binding ShowSyncAction}" IsEnabled="{Binding CanSync}"
                                     Click="Sync_Click" ToolTip.Tip="{Binding SyncReason}">
                                 <StackPanel Orientation="Horizontal" Spacing="8">
@@ -391,14 +378,21 @@
                                     <TextBlock Text="Sync" />
                                 </StackPanel>
                             </Button>
-                            <Button Grid.Column="1" Click="Refresh_Click">
+                            <Button Grid.Column="1" IsVisible="{Binding ShowSyncAction}" IsEnabled="{Binding CanRestore}" Click="Restore_Click"
+                                    ToolTip.Tip="Choose to download the cloud saves or upload this PC's saves">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <Path Classes="icon" Data="{StaticResource IconSwap}" />
+                                    <TextBlock Text="Restore" />
+                                </StackPanel>
+                            </Button>
+                            <Button Grid.Column="2" Click="Refresh_Click">
                                 <StackPanel Orientation="Horizontal" Spacing="8">
                                     <Path Classes="icon" Data="{StaticResource IconRefresh}" />
                                     <TextBlock Text="Refresh" />
                                 </StackPanel>
                             </Button>
                         </Grid>
-                        <TextBlock Classes="mutedSmall" Text="Refresh checks your save folder and the cloud copy. Only Sync transfers files." />
+                        <TextBlock Classes="mutedSmall" Text="Refresh checks your save folder and the cloud copy. Only Sync and Restore transfer files." />
 
                         <Grid ColumnDefinitions="*,*" ColumnSpacing="14">
                             <Border Classes="tile">
@@ -552,6 +546,53 @@
                                 </Border>
                             </StackPanel>
                         </Border>
+                    </StackPanel>
+
+                    <!-- Restore -->
+                    <StackPanel IsVisible="{Binding IsRestore}" Spacing="16">
+                        <StackPanel Spacing="7">
+                            <TextBlock Classes="pageTitle" Text="Restore" />
+                            <TextBlock Classes="subtitle" Text="Choose which copy of your saves to keep. The other copy is replaced as a whole." />
+                        </StackPanel>
+                        <Border Classes="card">
+                            <StackPanel Spacing="8">
+                                <TextBlock Text="{Binding RestoreSummary}" FontWeight="SemiBold" />
+                                <TextBlock Classes="muted" Text="{Binding SyncDetail}" TextWrapping="Wrap" />
+                            </StackPanel>
+                        </Border>
+                        <Grid ColumnDefinitions="*,*" ColumnSpacing="14">
+                            <Border Classes="card">
+                                <StackPanel Spacing="10">
+                                    <StackPanel Orientation="Horizontal" Spacing="9">
+                                        <Border Classes="iconTile accent" Width="32" Height="32" CornerRadius="9">
+                                            <Path Classes="iconAccent" Data="{StaticResource IconCloud}" />
+                                        </Border>
+                                        <TextBlock Text="Pull cloud → this PC" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                    </StackPanel>
+                                    <TextBlock Classes="mutedSmall" TextWrapping="Wrap"
+                                               Text="Replaces the files in your save folder with the cloud saves. Your current files are backed up on this PC first." />
+                                    <Button Classes="primary" Content="Pull Cloud Saves" Click="Pull_Click" IsEnabled="{Binding CanPull}" HorizontalAlignment="Left" />
+                                    <TextBlock Classes="mutedSmall" Text="{Binding PullReason}" IsVisible="{Binding HasPullReason}" TextWrapping="Wrap" />
+                                </StackPanel>
+                            </Border>
+                            <Border Grid.Column="1" Classes="card">
+                                <StackPanel Spacing="10">
+                                    <StackPanel Orientation="Horizontal" Spacing="9">
+                                        <Border Classes="iconTile violet" Width="32" Height="32" CornerRadius="9">
+                                            <Path Classes="iconViolet" Data="{StaticResource IconFolder}" />
+                                        </Border>
+                                        <TextBlock Text="Push this PC → cloud" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                    </StackPanel>
+                                    <TextBlock Classes="mutedSmall" Text="{Binding PushDescription}" TextWrapping="Wrap" />
+                                    <Button Classes="primary" Content="Push This PC's Saves" Click="Push_Click" IsEnabled="{Binding CanPush}" HorizontalAlignment="Left" />
+                                    <TextBlock Classes="mutedSmall" Text="{Binding PushReason}" IsVisible="{Binding HasPushReason}" TextWrapping="Wrap" />
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+                        <ProgressBar IsIndeterminate="True" IsVisible="{Binding Sync.IsBusy}" />
+                        <TextBlock Classes="muted" Classes.warning="{Binding IsSyncMessageError}" Text="{Binding SyncMessage}"
+                                   IsVisible="{Binding HasSyncMessage}" TextWrapping="Wrap" />
+                        <Button Content="Cancel" Click="Back_Click" HorizontalAlignment="Left" />
                     </StackPanel>
 
                     <!-- Settings -->
