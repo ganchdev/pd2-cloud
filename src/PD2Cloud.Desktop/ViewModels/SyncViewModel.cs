@@ -225,8 +225,8 @@ public sealed class SyncViewModel : INotifyPropertyChanged, IDisposable
             if (operations is null) return "";
             if (HasBaseline)
                 return BaselineAncestryValid
-                    ? $"Last upload published revision {Short(Baseline!.LastSynchronizedCommit)} on {Baseline.SynchronizedAt.ToLocalTime():g}. This records remote publication, not verified synchronization."
-                    : "The last uploaded revision is no longer part of the remote history. Review the retained upload evidence.";
+                    ? $"Last synchronized revision {Short(Baseline!.LastSynchronizedCommit)} on {Baseline.SynchronizedAt.ToLocalTime():g}. Refresh to compare your current files with the checked cloud revision."
+                    : "The last synchronized revision is no longer part of the remote history. Review the retained upload evidence.";
             if (HasRecoveryEvidence) return "An earlier upload is waiting for review. Open Upload Recovery.";
             if (CanOfferUpload) return BootstrapCase switch
             {

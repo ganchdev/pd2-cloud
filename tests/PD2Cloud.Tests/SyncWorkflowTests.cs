@@ -353,6 +353,10 @@ public sealed class SyncWorkflowTests : IDisposable
         Assert.Equal(new byte[] { 1 }, await File.ReadAllBytesAsync(Path.Combine(Source, "existing")));
         Assert.False(File.Exists(Path.Combine(Source, "nested", "save.any")));
         Assert.True(File.Exists(SyncStatePath));
+        Assert.True(workflow.IsSyncHealthy);
+        Assert.Equal("In sync at the checked revision", workflow.SyncStatus);
+        Assert.Contains("This device is synchronized", workflow.ComparisonStatus);
+        Assert.Contains("Last synchronized revision", workflow.BaselineLine);
 
         // A new local edit produces another real difference. With the pulled baseline retained, Resolve can push.
         await File.WriteAllTextAsync(Path.Combine(Source, "local-edit.bin"), "local edit");
@@ -366,6 +370,8 @@ public sealed class SyncWorkflowTests : IDisposable
         Assert.Equal("local edit", await File.ReadAllTextAsync(Path.Combine(Source, "local-edit.bin")));
         var remote = server.Expand(server.Commits[server.Head!].Tree);
         Assert.Contains(remote, e => e.Path == CloudStorage.FilesPath + "/local-edit.bin");
+        Assert.True(workflow.IsSyncHealthy);
+        Assert.Equal("In sync at the checked revision", workflow.SyncStatus);
     }
 
     [Fact]

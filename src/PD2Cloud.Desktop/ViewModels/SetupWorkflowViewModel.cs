@@ -129,10 +129,11 @@ public sealed class SetupWorkflowViewModel : INotifyPropertyChanged, IDisposable
     public bool ShowSidebar => true;
 
     public string BaselineLine => Sync.Baseline is { } baseline
-        ? $"Last published revision {ShortCommit(baseline.LastSynchronizedCommit)} on {baseline.SynchronizedAt.ToLocalTime():dd/MM/yyyy HH:mm}"
+        ? $"Last synchronized revision {ShortCommit(baseline.LastSynchronizedCommit)} on {baseline.SynchronizedAt.ToLocalTime():dd/MM/yyyy HH:mm}"
         : "";
     public bool HasBaselineLine => BaselineLine.Length > 0;
-    public bool IsSyncHealthy => Sync.HasBaseline && Sync.BaselineAncestryValid;
+    public bool IsSyncHealthy => Sync.HasBaseline && Sync.BaselineAncestryValid
+        && Comparison?.Decision == ComparisonDecision.NoTransfer;
     public string CloudFileSummary => FileBrowser.CountText(CloudFiles.Count);
     public string LocalFileSummary => FileBrowser.CountText(Local.Files.Count);
     public bool HasCloudNotice => Cloud.Notice.Length > 0;
@@ -141,7 +142,10 @@ public sealed class SetupWorkflowViewModel : INotifyPropertyChanged, IDisposable
     private static string ShortCommit(string commit) => string.IsNullOrEmpty(commit) ? "" : commit[..Math.Min(7, commit.Length)];
     public string DashboardConnectionStatus => GitHub.IsConnected ? "GitHub Connected" : "GitHub Not Connected";
     public string SyncStatus => Sync.HasBaseline
-        ? Sync.BaselineAncestryValid ? "Published — not a verified synchronization" : "Uploaded revision no longer in the remote history"
+        ? !Sync.BaselineAncestryValid ? "Synchronized revision no longer in the remote history"
+        : Comparison?.Decision == ComparisonDecision.NoTransfer ? "In sync at the checked revision"
+        : Comparison is null ? "Last synchronized revision recorded"
+        : "Changes since the last synchronized revision"
         : Local.Manifest?.IsValid != true || !GitHub.IsConnected || GitHub.SelectedRepository is null || Cloud.Result is null
             ? "Needs attention"
         : Cloud.Result.Content == RepositoryContent.Incompatible ? "Needs attention"
@@ -156,7 +160,9 @@ public sealed class SetupWorkflowViewModel : INotifyPropertyChanged, IDisposable
     public CollectionComparison? Comparison => Cloud.Compare(Local.Manifest, GitHub.SelectedRepository);
     public string ComparisonStatus => Comparison?.Decision switch
     {
-        ComparisonDecision.NoTransfer => "Local and cloud files match at the checked revision. This does not establish a successful synchronization.",
+        ComparisonDecision.NoTransfer => Sync.HasBaseline && Sync.BaselineAncestryValid
+            ? "Local and cloud files match at the checked revision. This device is synchronized at that revision; other devices are not verified."
+            : "Local and cloud files match at the checked revision, but no synchronization history is recorded yet.",
         ComparisonDecision.InitialUpload => "Local files are ready for an initial upload. Sync All shows exactly what will be published before anything is sent.",
         ComparisonDecision.InitialDownload => "Cloud files are available for a future initial download. The local folder is empty.",
         ComparisonDecision.Conflict => "Local and cloud collections differ. Choose Resolve to pull the cloud version (after backing up your local folder) or push your local version to the repository.",
