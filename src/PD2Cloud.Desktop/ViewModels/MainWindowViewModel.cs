@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using PD2Cloud.Core;
+using PD2Cloud.Desktop.Logging;
 using PD2Cloud.Desktop.Services;
 
 namespace PD2Cloud.Desktop.ViewModels;
@@ -26,7 +27,11 @@ public sealed class MainWindowViewModel(ICollectionScanner scanner, IFolderPicke
     {
         SetupStarted = true;
         try { if (settings is not null) await settings.SaveSetupStartedAsync(); }
-        catch (Exception) { settingsNotice = "Could not save setup progress. You can continue for this session."; }
+        catch (Exception error)
+        {
+            AppLog.Warn("Settings", "Could not save setup-started progress", error);
+            settingsNotice = "Could not save setup progress. You can continue for this session.";
+        }
         Notify();
     }
     public bool SetupCompleted { get; private set; }
@@ -42,8 +47,13 @@ public sealed class MainWindowViewModel(ICollectionScanner scanner, IFolderPicke
             }
             settingsNotice = "";
             SetupCompleted = true;
+            AppLog.Info("Settings", $"Setup completed; folder={selectedPath}");
         }
-        catch (Exception) { settingsNotice = "Could not save setup progress. Please retry Continue."; }
+        catch (Exception error)
+        {
+            AppLog.Warn("Settings", "Could not save completed setup", error);
+            settingsNotice = "Could not save setup progress. Please retry Continue.";
+        }
         Notify();
     }
 
@@ -95,10 +105,12 @@ public sealed class MainWindowViewModel(ICollectionScanner scanner, IFolderPicke
             settingsNotice = restored.Notice;
             selectedPath = restored.SelectedFolder;
             initializing = false;
+            AppLog.Info("Settings", $"Restored setup; started={SetupStarted}; completed={SetupCompleted}; folder={selectedPath ?? "<none>"}; notice={restored.Notice}");
             if (selectedPath is not null) await RefreshAsync();
         }
-        catch (Exception)
+        catch (Exception error)
         {
+            AppLog.Warn("Settings", "Could not restore folder settings", error);
             if (!disposed) settingsNotice = "Could not restore folder settings. Choose a folder to continue.";
         }
         finally
@@ -121,13 +133,16 @@ public sealed class MainWindowViewModel(ICollectionScanner scanner, IFolderPicke
             if (disposed) return;
             if (path is null)
             {
+                AppLog.Info("Folder", "Folder selection cancelled.");
                 pickerNotice = "Folder selection cancelled. Current selection kept.";
                 return;
             }
+            AppLog.Info("Folder", $"Folder selected: {path}");
             if (settings is not null)
             {
                 if (!settings.IsSourceAllowed(path))
                 {
+                    AppLog.Warn("Folder", $"Rejected source folder (overlaps application data): {path}");
                     pickerNotice = "Choose a folder outside application-owned state and staging, and not a parent of that location.";
                     return;
                 }
@@ -137,15 +152,17 @@ public sealed class MainWindowViewModel(ICollectionScanner scanner, IFolderPicke
                     if (disposed) return;
                     settingsNotice = "";
                 }
-                catch (Exception)
+                catch (Exception error)
                 {
+                    AppLog.Warn("Settings", "Could not save selected folder", error);
                     if (disposed) return;
                     settingsNotice = "Folder could not be saved for restart. You can still inspect it; existing settings have been kept. Choose the folder again to retry.";
                 }
             }
         }
-        catch (Exception)
+        catch (Exception error)
         {
+            AppLog.Error("Folder", "Could not open the folder chooser", error);
             if (!disposed) pickerNotice = "Could not open the folder chooser. Please try again.";
             return;
         }
@@ -171,6 +188,7 @@ public sealed class MainWindowViewModel(ICollectionScanner scanner, IFolderPicke
         Notify();
         try
         {
+            AppLog.Info("Inspection", $"Started; folder={selectedPath}");
             var result = await scanner.ScanAsync(selectedPath!, current.Token);
             if (disposed || request != generation) return;
             manifest = result;
@@ -183,10 +201,17 @@ public sealed class MainWindowViewModel(ICollectionScanner scanner, IFolderPicke
                 InspectionState.Failed => "Could not finish inspection. Check access and Refresh.",
                 _ => "Inspection needs attention. Review the details and Refresh."
             };
+            AppLog.Info("Inspection", $"Finished; state={state}; valid={result.IsValid}; files={result.Files.Count}; fingerprint={result.CollectionFingerprint ?? "<null>"}");
+            foreach (var issue in result.Issues)
+                AppLog.Warn("Inspection", $"Issue; code={issue.Code}; path={issue.RelativePath ?? "<root>"}; message={issue.Message}");
         }
-        catch (OperationCanceledException) when (current.IsCancellationRequested) { }
-        catch (Exception)
+        catch (OperationCanceledException) when (current.IsCancellationRequested)
         {
+            AppLog.Info("Inspection", "Cancelled.");
+        }
+        catch (Exception error)
+        {
+            AppLog.Error("Inspection", $"Unhandled failure; folder={selectedPath}", error);
             if (!disposed && request == generation)
             {
                 state = InspectionState.Failed;

@@ -32,6 +32,16 @@ mise run test
 
 Known local setup gaps are tracked in [development setup follow-ups](docs/dev-setup-follow-ups.md).
 
+## Diagnostic logs
+
+PD2 Cloud writes a local diagnostic log under its application-data directory:
+
+- `%LOCALAPPDATA%\PD2Cloud\logs\pd2cloud.log` on Windows
+- `~/Library/Application Support/PD2Cloud/logs/pd2cloud.log` on macOS
+- `${XDG_DATA_HOME:-~/.local/share}/PD2Cloud/logs/pd2cloud.log` on Linux
+
+The log records startup, settings restoration, folder selection, inspection results and validation issues (code, relative path, message), cloud-check results, sync/upload/download outcomes and exception stack traces. It rotates at 2 MiB and keeps five archives (`pd2cloud.1.log` … `pd2cloud.5.log`). It never records file contents, credentials, tokens or device-authorization codes. Logs are local only and are never uploaded.
+
 ## Layout
 
 - `src/PD2Cloud.Core`: generic manifests, the three-way sync planner, validation and the last-sync model; scanner interface and portable path rules.

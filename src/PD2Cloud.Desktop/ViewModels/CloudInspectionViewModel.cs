@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using PD2Cloud.Desktop.Logging;
 using PD2Cloud.GitHub;
 using PD2Cloud.Remote;
 
@@ -22,6 +23,7 @@ public sealed class CloudInspectionViewModel(Func<RepositoryChoice, Cancellation
         operation = null;
         Result = null;
         Notice = "Cloud files need a fresh check. Refresh after choosing a repository or changing account settings.";
+        AppLog.Debug("Cloud", "Cloud result invalidated.");
         Notify();
     }
     public void Cancel()
@@ -38,6 +40,7 @@ public sealed class CloudInspectionViewModel(Func<RepositoryChoice, Cancellation
         using var current = new CancellationTokenSource();
         operation = current;
         Notice = "Checking cloud saves…";
+        AppLog.Info("Cloud", $"Check started; repository={repository.FullName}; branch={repository.DefaultBranch}");
         Notify();
         try
         {
@@ -46,11 +49,20 @@ public sealed class CloudInspectionViewModel(Func<RepositoryChoice, Cancellation
             if (result.Repository != repository) throw new InvalidDataException();
             Result = result;
             Notice = result.Message;
+            AppLog.Info("Cloud", $"Check finished; content={result.Content}; commit={result.Commit ?? "<none>"}; files={result.Collection?.Manifest?.Files.Count}; message={result.Message}");
         }
-        catch (OperationCanceledException) when (current.IsCancellationRequested) { }
-        catch (ConnectionException ex) { if (!disposed && request == generation) Notice = ex.Message; }
-        catch (Exception)
+        catch (OperationCanceledException) when (current.IsCancellationRequested)
         {
+            AppLog.Info("Cloud", "Check cancelled.");
+        }
+        catch (ConnectionException ex)
+        {
+            AppLog.Warn("Cloud", "Check failed with a connection error.", ex);
+            if (!disposed && request == generation) Notice = ex.Message;
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("Cloud", "Check failed unexpectedly.", ex);
             if (!disposed && request == generation) Notice = "Cloud saves could not be checked. Check your connection and GitHub access, then refresh.";
         }
         finally

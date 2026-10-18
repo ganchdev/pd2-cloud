@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using PD2Cloud.Core;
+using PD2Cloud.Desktop.Logging;
 using PD2Cloud.Desktop.Services;
 using PD2Cloud.GitHub;
 using PD2Cloud.Local;
@@ -150,9 +151,10 @@ public sealed class SyncViewModel : INotifyPropertyChanged, IDisposable
         if (operations is null || disposed) return;
         try
         {
-            var (state, _) = await operations.LoadSyncStateAsync(ct);
+            var (state, notice) = await operations.LoadSyncStateAsync(ct);
             if (disposed) return;
             LastSynced = state;
+            AppLog.Info("Sync", $"Loaded sync state; baseline={state?.LastSynchronizedCommit ?? "<none>"}; repository={state?.RepositoryIdentity ?? "<none>"}; folder={state?.LocalRootPath ?? "<none>"}; notice={notice}");
         }
         catch (OperationCanceledException) { return; }
         Notify();
@@ -173,8 +175,13 @@ public sealed class SyncViewModel : INotifyPropertyChanged, IDisposable
         {
             await operations.SaveSyncStateAsync(new LocalSyncState(1, repository.FullName, repository.DefaultBranch, result.Commit!,
                 Canonical(local.SelectedPath!), remote.Files, DateTimeOffset.UtcNow, remote.CollectionFingerprint!), CancellationToken.None);
+            AppLog.Info("Sync", $"Recorded matching baseline; repository={repository.FullName}; commit={result.Commit}; files={remote.Files.Count}");
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) { return; }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            AppLog.Warn("Sync", "Could not record a matching sync baseline.", ex);
+            return;
+        }
         await RefreshStateAsync();
     }
 
@@ -185,14 +192,23 @@ public sealed class SyncViewModel : INotifyPropertyChanged, IDisposable
     public async Task<bool> SyncAsync()
     {
         if (!CanSync || disposed || State == SyncState.Conflict) return false;
+        AppLog.Info("Sync", $"Sync pressed; state={State}; repository={gitHub.SelectedRepository?.FullName}; folder={local.SelectedPath}");
         return await RunAsync(State == SyncState.Download ? DownloadAsync : UploadAsync);
     }
 
     /// <summary>Replaces this PC's saves with the verified cloud saves, after a local backup.</summary>
-    public async Task<bool> PullAsync() => CanPull && !disposed && await RunAsync(DownloadAsync);
+    public async Task<bool> PullAsync()
+    {
+        AppLog.Info("Sync", $"Pull pressed; repository={gitHub.SelectedRepository?.FullName}; folder={local.SelectedPath}");
+        return CanPull && !disposed && await RunAsync(DownloadAsync);
+    }
 
     /// <summary>Replaces the cloud saves with this PC's saves, setting up or repairing cloud storage as needed.</summary>
-    public async Task<bool> PushAsync() => CanPush && !disposed && await RunAsync(UploadAsync);
+    public async Task<bool> PushAsync()
+    {
+        AppLog.Info("Sync", $"Push pressed; repository={gitHub.SelectedRepository?.FullName}; folder={local.SelectedPath}");
+        return CanPush && !disposed && await RunAsync(UploadAsync);
+    }
 
     public void ClearMessage()
     {
@@ -214,14 +230,17 @@ public sealed class SyncViewModel : INotifyPropertyChanged, IDisposable
         }
         catch (OperationCanceledException) when (current.IsCancellationRequested)
         {
+            AppLog.Info("Sync", "Sync cancelled.");
             if (!disposed) SetMessage("Sync cancelled.", true);
         }
         catch (Exception ex) when (ex is RecoveryBlockedException or ConnectionException)
         {
+            AppLog.Warn("Sync", "Sync was blocked.", ex);
             if (!disposed) SetMessage(ex.Message, true);
         }
         catch (Exception ex)
         {
+            AppLog.Error("Sync", "Sync failed unexpectedly.", ex);
             if (!disposed) SetMessage("Sync did not finish." + Diagnostic(ex), true);
         }
         finally
@@ -249,16 +268,20 @@ public sealed class SyncViewModel : INotifyPropertyChanged, IDisposable
             RepositoryContent.Incompatible => RepositoryBootstrapCase.Repair,
             _ => RepositoryBootstrapCase.None
         };
+        AppLog.Info("Sync", $"Preparing upload; bootstrap={bootstrap}; pinnedCommit={result.Commit ?? "<unborn>"}; fingerprint={fingerprint}");
         var prepared = await operations!.PrepareAsync(local.SelectedPath!, ct);
         if (disposed) return;
+        AppLog.Info("Sync", $"Prepared upload; operation={prepared.OperationId}; files={prepared.Files.Count}; fingerprint={prepared.CollectionFingerprint}");
         if (prepared.CollectionFingerprint != fingerprint)
         {
+            AppLog.Warn("Sync", "The local collection changed during upload preparation.");
             SetMessage("Your saves changed while syncing. Sync again.", true);
             return;
         }
         var upload = await operations.UploadAsync(new UploadRequest(prepared.OperationId, prepared.SourceRoot,
             prepared.CollectionFingerprint, repository, result.Commit ?? "", bootstrap), ct);
         if (disposed) return;
+        AppLog.Info("Sync", $"Upload result; status={upload.Status}; candidateCommit={upload.CandidateCommit ?? "<none>"}");
         var count = Files(prepared.Files.Count);
         switch (upload.Status)
         {
@@ -278,9 +301,11 @@ public sealed class SyncViewModel : INotifyPropertyChanged, IDisposable
     {
         var result = cloud.Result!;
         var remote = result.Collection!.Manifest!;
+        AppLog.Info("Sync", $"Starting download; commit={result.Commit}; fingerprint={remote.CollectionFingerprint}; files={remote.Files.Count}");
         var pulled = await operations!.PullAsync(new PullRequest(local.SelectedPath!, gitHub.SelectedRepository!,
             result.Commit!, remote.CollectionFingerprint!), ct);
         if (disposed) return;
+        AppLog.Info("Sync", $"Download finished; files={pulled.FileCount}; backup={pulled.BackupDirectory}; baselineRecorded={pulled.BaselineRecorded}");
         SetMessage(pulled.BaselineRecorded
             ? $"Downloaded {Files(pulled.FileCount)} from the cloud. Your previous saves were backed up to {pulled.BackupDirectory}."
             : $"Downloaded {Files(pulled.FileCount)} from the cloud, but the sync record could not be saved. Your previous saves were backed up to {pulled.BackupDirectory}.",

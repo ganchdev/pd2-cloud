@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using PD2Cloud.Core;
+using PD2Cloud.Desktop.Logging;
 using PD2Cloud.Desktop.Services;
 using PD2Cloud.Remote;
 
@@ -154,7 +155,12 @@ public sealed class SetupWorkflowViewModel : INotifyPropertyChanged, IDisposable
     // Sync never decides a conflict: it opens Restore so the user picks the copy to keep.
     public async Task SyncAsync()
     {
-        if (Sync.CanSync && Sync.State == SyncState.Conflict) { OpenRestore(); return; }
+        if (Sync.CanSync && Sync.State == SyncState.Conflict)
+        {
+            AppLog.Info("Sync", "Conflict requires an explicit Restore choice.");
+            OpenRestore();
+            return;
+        }
         await AfterSyncAsync(await Sync.SyncAsync());
     }
 
@@ -183,6 +189,7 @@ public sealed class SetupWorkflowViewModel : INotifyPropertyChanged, IDisposable
 
     private async Task AfterRestoreAsync(bool transferred)
     {
+        AppLog.Info("Restore", $"Restore action returned; transferred={transferred}; error={Sync.IsMessageError}; message={Sync.Message}");
         await AfterSyncAsync(transferred);
         if (!disposed && transferred && !Sync.IsMessageError) Dashboard();
     }
@@ -191,6 +198,7 @@ public sealed class SetupWorkflowViewModel : INotifyPropertyChanged, IDisposable
     private async Task AfterSyncAsync(bool transferred)
     {
         if (disposed || !transferred) { Notify(); return; }
+        AppLog.Info("Sync", "Refreshing local and cloud state after the transfer.");
         await Local.RefreshAsync();
         await CheckCloudAsync();
         await Sync.RefreshStateAsync();
@@ -200,6 +208,7 @@ public sealed class SetupWorkflowViewModel : INotifyPropertyChanged, IDisposable
 
     public async Task InitializeAsync()
     {
+        AppLog.Info("App", "Workflow initialization started.");
         Journey = ConnectionJourney.Onboarding;
         var connectionRestore = GitHub.InitializeAsync();
         await Local.InitializeAsync();
@@ -211,6 +220,7 @@ public sealed class SetupWorkflowViewModel : INotifyPropertyChanged, IDisposable
         await CheckCloudAsync();
         await Sync.RefreshStateAsync();
         await Sync.RecordMatchAsync();
+        AppLog.Info("App", $"Workflow initialized; screen={Screen}; setupCompleted={Local.SetupCompleted}; repository={GitHub.SelectedRepository?.FullName ?? "<none>"}");
     }
 
     public async Task GetStartedAsync()
@@ -230,6 +240,7 @@ public sealed class SetupWorkflowViewModel : INotifyPropertyChanged, IDisposable
     }
     public async Task ChangeRepositoryAsync()
     {
+        AppLog.Info("GitHub", "Changing repository.");
         Journey = ConnectionJourney.ChangeRepository;
         Navigate(SetupScreen.Repository);
         await GitHub.ReloadAsync();
@@ -255,6 +266,7 @@ public sealed class SetupWorkflowViewModel : INotifyPropertyChanged, IDisposable
     public async Task AcceptRepositoryAsync()
     {
         if (!GitHub.CanSelect) return;
+        AppLog.Info("GitHub", $"Repository choice accepted; repository={GitHub.Candidate?.FullName ?? "<none>"}");
         await GitHub.SelectAsync();
         if (disposed || !GitHub.LastOperationSucceeded || GitHub.SelectedRepository is null) return;
         // Metadata operations invalidate previous cloud evidence before selection changes.
@@ -270,6 +282,7 @@ public sealed class SetupWorkflowViewModel : INotifyPropertyChanged, IDisposable
     }
     public async Task RefreshAsync()
     {
+        AppLog.Info("App", "Dashboard refresh started.");
         Sync.ClearMessage();
         Cloud.Invalidate();
         var checkConnection = !GitHub.IsBusy;
@@ -278,6 +291,7 @@ public sealed class SetupWorkflowViewModel : INotifyPropertyChanged, IDisposable
         if (disposed) return;
         await Sync.RefreshStateAsync();
         await Sync.RecordMatchAsync();
+        AppLog.Info("App", $"Dashboard refresh finished; local={Local.State}; cloud={Cloud.Result?.Content.ToString() ?? "<none>"}; sync={Sync.State}");
     }
     public bool CanCheckCloud => !disposed && !GitHub.IsBusy && !Cloud.IsBusy && GitHub.SelectedRepository is not null;
     public Task CheckCloudAsync() => CanCheckCloud && GitHub.SelectedRepository is { } selected
@@ -287,6 +301,7 @@ public sealed class SetupWorkflowViewModel : INotifyPropertyChanged, IDisposable
     public async Task DisconnectAsync()
     {
         if (!DisconnectConfirmation || GitHub.IsBusy) return;
+        AppLog.Info("GitHub", "Disconnect confirmed.");
         await GitHub.DisconnectAsync();
         DisconnectConfirmation = false;
         Notify();
@@ -306,7 +321,15 @@ public sealed class SetupWorkflowViewModel : INotifyPropertyChanged, IDisposable
         else Navigate(IsFolder ? SetupScreen.Repository : IsRepository ? SetupScreen.Connect : SetupScreen.Welcome);
     }
     public void SetBrowserNotice(string message) { BrowserNotice = message; Notify(); }
-    private void Navigate(SetupScreen screen) { if (disposed) return; Screen = screen; BrowserNotice = ""; DisconnectConfirmation = false; Notify(); }
+    private void Navigate(SetupScreen screen)
+    {
+        if (disposed) return;
+        if (Screen != screen) AppLog.Debug("UI", $"Navigate {Screen} -> {screen}");
+        Screen = screen;
+        BrowserNotice = "";
+        DisconnectConfirmation = false;
+        Notify();
+    }
     private void ChildChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (ReferenceEquals(sender, GitHub) && (GitHub.IsBusy || Cloud.Result is { } result && result.Repository != GitHub.SelectedRepository)) Cloud.Invalidate();

@@ -19,6 +19,7 @@ It contains:
 - `instance.lock` — an empty file held exclusively while one desktop instance runs; it prevents a second launch from racing recovery storage
 - `recovery/` — `operations.lock` plus scratch copies of the save files for the upload in progress; emptied after every upload and discarded by the next sync if a crash left anything behind
 - `replacements/` — complete backups of the save folder taken before each download (the newest five are kept)
+- `logs/` — local diagnostic logs (`pd2cloud.log` plus rotated archives). Safe to delete; never used for synchronization and never contains credentials or file contents
 
 The GitHub credential envelope lives only in macOS Keychain, Windows Credential Manager or Linux Secret Service, never in these files (see [GitHub connection](github-connection.md)). Its native entry key is `PD2Cloud.GitHub.` plus the first 24 uppercase hex digits of SHA-256 over the public client ID; the macOS/Windows account label is `GitHub`.
 

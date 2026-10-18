@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using PD2Cloud.Desktop.Logging;
 using PD2Cloud.GitHub;
 using PD2Cloud.Remote;
 
@@ -46,7 +47,7 @@ public sealed class GitHubConnectionViewModel(GitHubConnection connection) : INo
         return ReloadAsync();
     }
 
-    public Task ConnectAsync() => !CanConnect ? Task.CompletedTask : RunAsync(async ct =>
+    public Task ConnectAsync() => !CanConnect ? Task.CompletedTask : RunAsync("Connect", async ct =>
     {
         IsConnected = false; SelectedRepository = null;
         Account = ""; Selection = "No repository selected."; Repositories = []; Candidate = null;
@@ -62,7 +63,7 @@ public sealed class GitHubConnectionViewModel(GitHubConnection connection) : INo
         await LoadAsync(ct);
     });
 
-    public Task ReloadAsync() => !CanReload ? Task.CompletedTask : RunAsync(LoadAsync);
+    public Task ReloadAsync() => !CanReload ? Task.CompletedTask : RunAsync("Reload", LoadAsync);
     private async Task LoadAsync(CancellationToken ct)
     {
         IsConnected = false; SelectedRepository = null;
@@ -86,7 +87,7 @@ public sealed class GitHubConnectionViewModel(GitHubConnection connection) : INo
     {
         var selected = Candidate;
         if (selected is null) return Task.CompletedTask;
-        return RunAsync(async ct =>
+        return RunAsync("SelectRepository", async ct =>
         {
             SelectedRepository = null;
             Selection = "No verified repository selected.";
@@ -95,10 +96,11 @@ public sealed class GitHubConnectionViewModel(GitHubConnection connection) : INo
             SelectedRepository = result;
             Selection = $"{result.FullName}";
             Notice = "Repository selection saved securely. No repository contents were written.";
+            AppLog.Info("GitHub", $"Repository selected; name={result.FullName}; id={result.Id}; branch={result.DefaultBranch}");
         });
     }
 
-    public Task DisconnectAsync() => RunAsync(async ct =>
+    public Task DisconnectAsync() => RunAsync("Disconnect", async ct =>
     {
         await connection.DisconnectAsync(ct);
         if (disposed) return;
@@ -108,20 +110,32 @@ public sealed class GitHubConnectionViewModel(GitHubConnection connection) : INo
     });
 
     public void Cancel() => operation?.Cancel();
-    private async Task RunAsync(Func<CancellationToken, Task> action)
+    private async Task RunAsync(string operationName, Func<CancellationToken, Task> action)
     {
         if (disposed || IsBusy) return;
         using var current = new CancellationTokenSource();
         LastOperationSucceeded = false;
         operation = current; UserCode = ""; VerificationAddress = ""; Notice = "Contacting GitHub…"; Notify();
-        try { await action(current.Token); LastOperationSucceeded = !current.IsCancellationRequested; }
+        AppLog.Info("GitHub", $"{operationName} started.");
+        try
+        {
+            await action(current.Token);
+            LastOperationSucceeded = !current.IsCancellationRequested;
+            AppLog.Info("GitHub", $"{operationName} finished; succeeded={LastOperationSucceeded}; repository={SelectedRepository?.FullName ?? "<none>"}; repositories={Repositories.Count}");
+        }
         catch (OperationCanceledException) when (current.IsCancellationRequested)
         {
+            AppLog.Info("GitHub", $"{operationName} cancelled.");
             if (!disposed) Notice = "GitHub operation cancelled. Try again when you’re ready.";
         }
-        catch (ConnectionException ex) { if (!disposed) Notice = ex.Message; }
-        catch (Exception)
+        catch (ConnectionException ex)
         {
+            AppLog.Warn("GitHub", $"{operationName} failed with a connection error.", ex);
+            if (!disposed) Notice = ex.Message;
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("GitHub", $"{operationName} failed unexpectedly.", ex);
             if (!disposed)
             {
                 Notice = "GitHub or secure account storage is unavailable. Check your internet connection and unlock your account’s secure storage, then retry.";
