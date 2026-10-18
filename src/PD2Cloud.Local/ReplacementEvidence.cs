@@ -26,7 +26,7 @@ public sealed partial class OperationPreparationStore
                 using var lease = AcquireLease();
                 DiscardOperations();
                 var original = await scanner.ScanAsync(sourceRoot, token).ConfigureAwait(false);
-                RequireValid(original);
+                RequireValid(original, "Your save folder");
                 if (original.Files.Count > MaxFiles)
                     throw new RecoveryBlockedException("Replacement supports at most 1,000 files; nothing was changed.");
 
@@ -63,7 +63,7 @@ public sealed partial class OperationPreparationStore
                     RecoveryStorage.FlushDirectory(Path.GetDirectoryName(target)!);
                 }
                 var backed = scanner.ScanOwned(backupDirectory, token);
-                RequireValid(backed);
+                RequireValid(backed, "The backup in application data");
                 if (!Equal(backed.Files, original.Files))
                     throw new RecoveryBlockedException("The complete replacement backup could not be verified.");
 

@@ -49,7 +49,8 @@ public sealed class CollectionScanner(IFileFingerprintReader? reader = null, str
         }
         catch (SourceReadException ex)
         {
-            issues.Add(new(ValidationCode.ReadError, "Cannot read this regular file safely; it may be unavailable, unsupported or changing. Check access and Refresh.", ex.RelativePath));
+            // The OS reason (e.g. "being used by another process") is the useful part; the file is named separately.
+            issues.Add(new(ValidationCode.ReadError, $"Cannot read this file; it may be open in another program such as the game or a sync tool. {ex.InnerException?.Message}".TrimEnd(), ex.RelativePath));
         }
         catch (UnauthorizedAccessException)
         {

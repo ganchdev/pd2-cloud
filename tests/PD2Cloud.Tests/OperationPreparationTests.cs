@@ -48,6 +48,23 @@ public sealed class OperationPreparationTests : IDisposable
     }
 
     [Fact]
+    public async Task UnreadableSourceFileIsNamedInTheRefusal()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        await File.WriteAllBytesAsync(Path.Combine(Source, "locked.d2s"), [1, 2, 3]);
+        var path = Path.Combine(Source, "locked.d2s");
+        var mode = File.GetUnixFileMode(path);
+        try
+        {
+            File.SetUnixFileMode(path, UnixFileMode.None);
+            var error = await Assert.ThrowsAsync<RecoveryBlockedException>(() => Store().PrepareAsync(Source));
+            Assert.StartsWith("Your save folder could not be checked completely", error.Message);
+            Assert.Contains("locked.d2s: Cannot read this file", error.Message);
+        }
+        finally { File.SetUnixFileMode(path, mode); }
+    }
+
+    [Fact]
     public async Task CompleteCaptureAndBackupSurviveRestartWithoutChangingAnySourceOrBaseline()
     {
         Populate();

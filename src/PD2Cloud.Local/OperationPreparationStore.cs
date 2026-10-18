@@ -52,7 +52,7 @@ public sealed partial class OperationPreparationStore
                 using var lease = AcquireLease();
                 DiscardOperations();
                 var original = await scanner.ScanAsync(sourceRoot, token);
-                RequireValid(original);
+                RequireValid(original, "Your save folder");
                 if (original.Files.Count > MaxFiles) throw new RecoveryBlockedException("Preparation supports at most 1,000 files; nothing was excluded or changed.");
                 var issues = new List<ValidationIssue>();
                 var metadata = CollectionScanner.Inventory(sourceRoot, token, issues);
@@ -319,20 +319,25 @@ public sealed partial class OperationPreparationStore
     {
         RecoveryStorage.CheckPath(path);
         var manifest = scanner.ScanOwned(path, token);
-        RequireValid(manifest);
+        RequireValid(manifest, "The working copy in application data");
         if (!Equal(manifest.Files, expected)) throw new RecoveryBlockedException("Snapshot membership or bytes do not match the complete original inventory.");
     }
 
     private async Task VerifySourceAsync(string path, IReadOnlyList<FileEntry> expected, CancellationToken token)
     {
         var manifest = await scanner.ScanAsync(path, token);
-        RequireValid(manifest);
+        RequireValid(manifest, "Your save folder");
         if (!Equal(manifest.Files, expected)) throw new RecoveryBlockedException("Your save files changed while the upload was being prepared. Sync again.");
     }
 
-    private static void RequireValid(CollectionManifest manifest)
+    // Names the first problem the scan found, so a refused operation says which file failed and why.
+    private static void RequireValid(CollectionManifest manifest, string scanned)
     {
-        if (!CollectionInventory.IsValidManifest(manifest)) throw new RecoveryBlockedException("The complete inventory could not be verified; no source file was changed.");
+        if (CollectionInventory.IsValidManifest(manifest)) return;
+        var problem = manifest.Issues.FirstOrDefault() is { } issue
+            ? (issue.RelativePath is { Length: > 0 } path ? $"{path}: " : "") + issue.Message
+            : "the scan did not produce a complete, stable file list.";
+        throw new RecoveryBlockedException($"{scanned} could not be checked completely, so nothing was changed. {problem}");
     }
 
     private static void CheckSourceInventory(string root, CollectionScanner.Metadata[] before, CancellationToken token)
