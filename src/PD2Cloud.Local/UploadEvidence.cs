@@ -5,8 +5,7 @@ namespace PD2Cloud.Local;
 public sealed partial class OperationPreparationStore
 {
     // The callback cannot outlive the lease. Remote is the only production consumer; no public write capability.
-    internal async Task<T> CoordinateUploadAsync<T>(string id, bool requireCurrentSource,
-        Func<UploadEvidence, Task<T>> action, CancellationToken ct, bool allowExistingBaseline = false)
+    internal async Task<T> CoordinateUploadAsync<T>(string id, Func<UploadEvidence, Task<T>> action, CancellationToken ct)
     {
         if (!Guid.TryParseExact(id, "N", out _) || id != id.ToLowerInvariant())
             throw new RecoveryBlockedException("Invalid operation identity.");
@@ -14,10 +13,6 @@ public sealed partial class OperationPreparationStore
         try
         {
             using var lease = AcquireLease();
-            var baseline = Path.Combine(applicationDirectory, "local-sync-state.json");
-            RecoveryStorage.CheckPath(baseline);
-            if (requireCurrentSource && !allowExistingBaseline && (File.Exists(baseline) || Directory.Exists(baseline)))
-                throw new RecoveryBlockedException("Existing successful-sync state requires verified baseline ancestry; initial upload is blocked.");
             var entries = Directory.EnumerateFileSystemEntries(directory).Where(p => Path.GetFileName(p) != "operations.lock").ToArray();
             var path = Path.Combine(directory, id);
             if (entries.Length != 1 || entries[0] != path) throw new RecoveryBlockedException("Unresolved recovery evidence blocks upload.");
@@ -43,12 +38,18 @@ public sealed partial class OperationPreparationStore
                 VerifySnapshot(operation.BackupDirectory, operation.Files, ct);
                 if (source) await VerifySourceAsync(operation.SourceRoot, operation.Files, ct).ConfigureAwait(false);
             }
-            await Revalidate(requireCurrentSource).ConfigureAwait(false);
+            await Revalidate(true).ConfigureAwait(false);
             var preparationDigest = Digest(FileFingerprintReader.ReadBounded(Path.Combine(path, $"journal-{journal.Sequence:D6}.json"), MaxProgressBytes, ct));
             var evidence = new UploadEvidence(operation, preparationDigest, Path.Combine(path, "upload"), Revalidate,
                 boundary => observer?.Reached("Upload:" + boundary, id, null), ct);
             try { return await action(evidence).ConfigureAwait(false); }
-            finally { evidence.Close(); }
+            finally
+            {
+                evidence.Close();
+                // The next refresh re-reads the repository, so evidence is never needed after this call.
+                try { DeleteEntry(path); }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+            }
         }
         finally { gate.Release(); }
     }
@@ -84,7 +85,7 @@ internal sealed class UploadEvidence(PreparedOperation operation, string prepara
             RecoveryStorage.CheckPath(path);
             var name = Path.GetFileName(path);
             if (name is not ("intent.json" or "candidate.json" or "published.json"))
-                throw new RecoveryBlockedException("Unknown or interrupted publication record. Retain evidence for review.");
+                throw new RecoveryBlockedException("Unknown publication record.");
             records.Add(name, FileFingerprintReader.ReadBounded(path, 16 * 1024, ct));
         }
         if (records.Count == 0) throw new RecoveryBlockedException("Incomplete publication evidence.");

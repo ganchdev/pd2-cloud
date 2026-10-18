@@ -357,32 +357,38 @@
                                             <Path Classes="iconSuccess" Data="{StaticResource IconCheckCircle}" IsVisible="{Binding IsSyncHealthy}" />
                                             <TextBlock Text="{Binding SyncStatus}" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center" />
                                         </StackPanel>
-                                        <TextBlock Classes="muted" Text="{Binding ComparisonStatus}" />
+                                        <TextBlock Classes="muted" Text="{Binding SyncDetail}" TextWrapping="Wrap" />
                                         <StackPanel Orientation="Horizontal" Spacing="7" IsVisible="{Binding HasBaselineLine}">
                                             <Path Classes="iconSmall" Data="{StaticResource IconClock}" />
                                             <TextBlock Classes="mutedSmall" Text="{Binding BaselineLine}" VerticalAlignment="Center" />
                                         </StackPanel>
-                                        <TextBlock Classes="mutedSmall" Text="{Binding Cloud.Notice}" />
                                         <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsDashboardChecking}" />
-                                        <TextBlock Classes="warning" Text="{Binding SyncNotice}" IsVisible="{Binding HasSyncNotice}" />
-                                        <TextBlock Classes="warning" Text="{Binding ResolveNotice}" IsVisible="{Binding HasResolveNotice}" />
-                                        <Border Classes="nested" IsVisible="{Binding HasResolveResult}">
-                                            <StackPanel Spacing="5">
-                                                <TextBlock Text="{Binding ResolveResultTitle}" FontSize="13.5" FontWeight="SemiBold" />
-                                                <TextBlock Classes="muted" Text="{Binding ResolveResultMessage}" TextWrapping="Wrap" />
-                                            </StackPanel>
-                                        </Border>
+                                        <TextBlock Classes="muted" Classes.warning="{Binding IsSyncMessageError}" Text="{Binding SyncMessage}"
+                                                   IsVisible="{Binding HasSyncMessage}" TextWrapping="Wrap" />
                                     </StackPanel>
                                 </Border>
                             </StackPanel>
                         </Border>
 
-                        <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,*" ColumnSpacing="10">
-                            <Button Classes="primary" IsVisible="{Binding ShowSyncAction}" IsEnabled="{Binding CanSyncAll}"
-                                    Click="SyncAll_Click" ToolTip.Tip="{Binding SyncAllReason}">
+                        <Border Classes="card" IsVisible="{Binding IsConflictChoiceOpen}">
+                            <StackPanel Spacing="12">
+                                <TextBlock Classes="sectionTitle" Text="Which saves do you want to keep?" />
+                                <TextBlock Classes="muted" TextWrapping="Wrap"
+                                           Text="Your saves changed on this PC and in the cloud since the last sync. Keeping this PC's saves replaces the cloud copy. Keeping the cloud saves replaces the files on this PC; your current files are backed up first." />
+                                <StackPanel Orientation="Horizontal" Spacing="10">
+                                    <Button Classes="primary" Content="Keep This PC's Saves" Click="KeepLocal_Click" />
+                                    <Button Classes="primary" Content="Keep Cloud Saves" Click="KeepCloud_Click" />
+                                    <Button Content="Cancel" Click="CancelConflict_Click" />
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <Grid ColumnDefinitions="Auto,Auto,*" ColumnSpacing="10">
+                            <Button Classes="primary" IsVisible="{Binding ShowSyncAction}" IsEnabled="{Binding CanSync}"
+                                    Click="Sync_Click" ToolTip.Tip="{Binding SyncReason}">
                                 <StackPanel Orientation="Horizontal" Spacing="8">
                                     <Path Classes="iconOnAccent" Data="{StaticResource IconSync}" />
-                                    <TextBlock Text="{Binding SyncActionLabel}" />
+                                    <TextBlock Text="Sync" />
                                 </StackPanel>
                             </Button>
                             <Button Grid.Column="1" Click="Refresh_Click">
@@ -391,22 +397,8 @@
                                     <TextBlock Text="Refresh" />
                                 </StackPanel>
                             </Button>
-                            <Button Grid.Column="2" IsVisible="{Binding HasRecoveryEvidence}" Click="OpenRecovery_Click">
-                                <StackPanel Orientation="Horizontal" Spacing="8">
-                                    <Path Classes="icon" Data="{StaticResource IconShield}" />
-                                    <TextBlock Text="Review Recovery" />
-                                </StackPanel>
-                            </Button>
-                            <Button Grid.Column="3" Classes="primary" IsVisible="{Binding ShowResolveAction}" IsEnabled="{Binding CanResolve}"
-                                    Click="Resolve_Click" ToolTip.Tip="{Binding ResolveReason}">
-                                <StackPanel Orientation="Horizontal" Spacing="8">
-                                    <Path Classes="iconOnAccent" Data="{StaticResource IconSwap}" />
-                                    <TextBlock Text="Resolve" />
-                                </StackPanel>
-                            </Button>
                         </Grid>
-                        <TextBlock Classes="mutedSmall" Text="{Binding SyncAllReason}" IsVisible="{Binding HasSyncAllReason}" />
-                        <TextBlock Classes="mutedSmall" Text="Refresh inspects local files and verifies cloud contents at one checked revision. It never transfers files." />
+                        <TextBlock Classes="mutedSmall" Text="Refresh checks your save folder and the cloud copy. Only Sync transfers files." />
 
                         <Grid ColumnDefinitions="*,*" ColumnSpacing="14">
                             <Border Classes="tile">
@@ -562,152 +554,6 @@
                         </Border>
                     </StackPanel>
 
-                    <!-- Resolve differences -->
-                    <StackPanel IsVisible="{Binding IsResolve}" Spacing="16">
-                        <StackPanel Spacing="7">
-                            <TextBlock Classes="pageTitle" Text="Resolve Differences" />
-                            <TextBlock Classes="subtitle" Text="Choose which complete version should become the shared copy. Nothing is merged or transferred automatically." />
-                        </StackPanel>
-                        <Border Classes="card">
-                            <StackPanel Spacing="8">
-                                <TextBlock Classes="sectionTitle" Text="What differs" />
-                                <TextBlock Text="{Binding ResolveSummary}" FontWeight="SemiBold" />
-                                <TextBlock Classes="muted" Text="Your local save folder and the verified cloud collection do not match. Pull replaces the local folder; push replaces the managed cloud collection." TextWrapping="Wrap" />
-                                <TextBlock Classes="mutedSmall" Text="{Binding ResolveBackupNotice}" TextWrapping="Wrap" />
-                            </StackPanel>
-                        </Border>
-                        <Grid ColumnDefinitions="*,*" ColumnSpacing="14">
-                            <Border Classes="card">
-                                <StackPanel Spacing="10">
-                                    <StackPanel Orientation="Horizontal" Spacing="9">
-                                        <Border Classes="iconTile accent" Width="32" Height="32" CornerRadius="9">
-                                            <Path Classes="iconAccent" Data="{StaticResource IconCloud}" />
-                                        </Border>
-                                        <TextBlock Text="Pull cloud → local" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center" />
-                                    </StackPanel>
-                                    <TextBlock Classes="mutedSmall" Text="Replaces the files in your local save folder with the verified cloud revision. A complete backup of the current local folder is written first and kept on this device." TextWrapping="Wrap" />
-                                    <Button Classes="primary" Content="Pull Cloud Version" Click="ResolvePull_Click" IsEnabled="{Binding CanResolvePull}" HorizontalAlignment="Left" />
-                                </StackPanel>
-                            </Border>
-                            <Border Grid.Column="1" Classes="card">
-                                <StackPanel Spacing="10">
-                                    <StackPanel Orientation="Horizontal" Spacing="9">
-                                        <Border Classes="iconTile violet" Width="32" Height="32" CornerRadius="9">
-                                            <Path Classes="iconViolet" Data="{StaticResource IconFolder}" />
-                                        </Border>
-                                        <TextBlock Text="Push local → cloud" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center" />
-                                    </StackPanel>
-                                    <TextBlock Classes="mutedSmall" Text="Publishes the reviewed local folder to the repository as a child commit. The PD2 Cloud collection is replaced; unrelated repository files are preserved and your local files are never changed." TextWrapping="Wrap" />
-                                    <Button Classes="primary" Content="Push Local Version" Click="ResolvePush_Click" IsEnabled="{Binding CanResolvePush}" HorizontalAlignment="Left" />
-                                </StackPanel>
-                            </Border>
-                        </Grid>
-                        <ProgressBar IsIndeterminate="True" IsVisible="{Binding Sync.IsBusy}" />
-                        <TextBlock Classes="warning" Text="{Binding ResolveNotice}" IsVisible="{Binding HasResolveNotice}" TextWrapping="Wrap" />
-                        <Button Content="Cancel" Click="CancelResolve_Click" HorizontalAlignment="Left" />
-                    </StackPanel>
-
-                    <!-- Upload review -->
-                    <StackPanel IsVisible="{Binding IsUploadReview}" Spacing="16">
-                        <StackPanel Spacing="7">
-                            <TextBlock Classes="pageTitle" Text="Review Upload" />
-                            <TextBlock Classes="subtitle" Text="{Binding Cloud.Notice}" />
-                        </StackPanel>
-                        <Border Classes="card" IsVisible="{Binding Sync.IsBootstrapCase}">
-                            <StackPanel Spacing="8">
-                                <TextBlock Classes="sectionTitle" Text="{Binding Sync.ReviewBootstrapTitle}" />
-                                <TextBlock Classes="muted" Text="{Binding Sync.ReviewBootstrapMessage}" />
-                            </StackPanel>
-                        </Border>
-                        <Border Classes="card">
-                            <StackPanel Spacing="10">
-                                <TextBlock Classes="sectionTitle" Text="What will be published" />
-                                <TextBlock Classes="mutedSmall" Text="{Binding Sync.ReviewLocation}" />
-                                <TextBlock Classes="muted" Text="{Binding Sync.ReviewRepositoryLine}" />
-                                <TextBlock Text="{Binding Sync.ReviewSummary}" FontWeight="SemiBold" />
-                                <StackPanel Spacing="3">
-                                    <TextBlock Classes="label" Text="COLLECTION FINGERPRINT" />
-                                    <SelectableTextBlock Text="{Binding Sync.ReviewFingerprint}" Classes="mono" />
-                                </StackPanel>
-                            </StackPanel>
-                        </Border>
-                        <CheckBox IsChecked="{Binding Sync.AdoptionAcknowledged, Mode=TwoWay}" IsVisible="{Binding Sync.RequiresAdoptionAcknowledgement}"
-                                  Content="I understand this will adopt a repository that already contains unrelated files, preserving them unchanged." />
-                        <TextBlock Classes="warning" Text="{Binding Sync.ReviewRequirementNotice}" IsVisible="{Binding Sync.HasReviewRequirementNotice}" />
-                        <TextBlock Classes="mutedSmall" Text="Confirming publishes this snapshot to your private repository and records the published revision locally as the last upload. It does not replace your local files and is not a verified two-device synchronization." />
-                        <ProgressBar IsIndeterminate="True" IsVisible="{Binding Sync.IsBusy}" />
-                        <TextBlock Classes="muted" Text="{Binding Sync.ReviewNotice}" IsVisible="{Binding Sync.HasReviewNotice}" />
-                        <Border Classes="nested" IsVisible="{Binding Sync.HasResult}">
-                            <StackPanel Spacing="6">
-                                <TextBlock Text="{Binding Sync.ResultTitle}" FontSize="14" FontWeight="SemiBold" />
-                                <TextBlock Classes="muted" Text="{Binding Sync.ResultMessage}" />
-                            </StackPanel>
-                        </Border>
-                        <StackPanel Orientation="Horizontal" Spacing="10">
-                            <Button Classes="primary" Content="Confirm Upload" Click="ConfirmUpload_Click" IsEnabled="{Binding Sync.CanConfirm}" />
-                            <Button Content="Cancel Upload" Click="CancelUpload_Click" IsVisible="{Binding Sync.IsBusy}" />
-                            <Button Content="Back to Saves" Click="Dashboard_Click" />
-                        </StackPanel>
-                        <Border Classes="card" Padding="0">
-                            <StackPanel>
-                                <Border Background="{StaticResource NestedBg}" Padding="16,11" CornerRadius="12,12,0,0">
-                                    <TextBlock Text="Files to publish" FontSize="12.5" FontWeight="SemiBold" Foreground="{StaticResource TextSecondary}" />
-                                </Border>
-                                <ItemsControl ItemsSource="{Binding ReviewFileGroups}">
-                                    <ItemsControl.ItemTemplate>
-                                        <DataTemplate x:DataType="vm:FileGroupHeader">
-                                            <StackPanel>
-                                                <Grid Classes="groupRow" ColumnDefinitions="Auto,Auto,*" ColumnSpacing="8">
-                                                    <TextBlock Text="{Binding Title}" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextSecondary}" />
-                                                    <TextBlock Grid.Column="1" Text="{Binding CountText}" Classes="mutedSmall" />
-                                                </Grid>
-                                                <ItemsControl ItemsSource="{Binding Rows}">
-                                                    <ItemsControl.ItemTemplate>
-                                                        <DataTemplate x:DataType="vm:FileRow">
-                                                            <Border BorderBrush="{StaticResource StrokeSoft}" BorderThickness="0,0,0,1">
-                                                                <Grid Classes="tableRow" ColumnDefinitions="*,90,96,140" ColumnSpacing="12">
-                                                                    <TextBlock Text="{Binding Name}" FontSize="12.5" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
-                                                                    <Border Grid.Column="1" Classes="badge" Background="{Binding BadgeBackground}" HorizontalAlignment="Left">
-                                                                        <TextBlock Text="{Binding TypeLabel}" Foreground="{Binding BadgeForeground}" FontSize="10.5" FontWeight="SemiBold" />
-                                                                    </Border>
-                                                                    <TextBlock Grid.Column="2" Classes="cell" Text="{Binding SizeText}" />
-                                                                </Grid>
-                                                            </Border>
-                                                        </DataTemplate>
-                                                    </ItemsControl.ItemTemplate>
-                                                </ItemsControl>
-                                            </StackPanel>
-                                        </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
-                            </StackPanel>
-                        </Border>
-                    </StackPanel>
-
-                    <!-- Recovery -->
-                    <StackPanel IsVisible="{Binding IsRecovery}" Spacing="16">
-                        <StackPanel Spacing="7">
-                            <TextBlock Classes="pageTitle" Text="Upload Recovery" />
-                            <TextBlock Classes="subtitle" Text="Review an upload that was interrupted, lost or overtaken by another change. This screen only reads retained evidence; it never uploads again, replaces files or changes a baseline." />
-                        </StackPanel>
-                        <Border Classes="card">
-                            <StackPanel Spacing="10">
-                                <StackPanel Orientation="Horizontal" Spacing="9">
-                                    <Path Classes="iconSmall" Data="{StaticResource IconShield}" />
-                                    <TextBlock Text="{Binding Sync.RecoveryEvidenceLine}" FontWeight="SemiBold" VerticalAlignment="Center" />
-                                </StackPanel>
-                                <TextBlock Text="{Binding Sync.RecoveryStatusTitle}" IsVisible="{Binding Sync.HasRecoveryStatus}" FontSize="14" FontWeight="SemiBold" />
-                                <TextBlock Classes="muted" Text="{Binding Sync.RecoveryMessage}" IsVisible="{Binding Sync.HasRecoveryStatus}" />
-                                <TextBlock Classes="warning" Text="{Binding Sync.RecoveryNotice}" IsVisible="{Binding Sync.HasRecoveryNotice}" />
-                            </StackPanel>
-                        </Border>
-                        <ProgressBar IsIndeterminate="True" IsVisible="{Binding Sync.IsBusy}" />
-                        <StackPanel Orientation="Horizontal" Spacing="10">
-                            <Button Classes="primary" Content="Re-check Evidence" Click="AssessRecovery_Click" IsEnabled="{Binding CanAssessRecovery}" />
-                            <Button Content="Back to Saves" Click="Dashboard_Click" />
-                        </StackPanel>
-                    </StackPanel>
-
                     <!-- Settings -->
                     <StackPanel IsVisible="{Binding IsSettings}" Spacing="16">
                         <StackPanel Spacing="7">
@@ -727,9 +573,9 @@
                             <TextBlock Classes="sectionTitle" Text="General" />
                             <Border Classes="card">
                                 <StackPanel Spacing="10">
-                                    <TextBlock Classes="muted" Text="PD2 Cloud keeps your save folder and account preferences on this device. Saves are never transferred automatically." />
+                                    <TextBlock Classes="muted" Text="PD2 Cloud keeps your save folder and account preferences on this device. Saves are only transferred when you press Sync." />
                                     <Border Classes="divider" />
-                                    <TextBlock Classes="mutedSmall" Text="Inspecting a folder only reads it. Uploading, pulling and pushing are separate, explicitly reviewed steps; pulling always backs up the local folder first." />
+                                    <TextBlock Classes="mutedSmall" Text="Inspecting a folder only reads it. Before Sync replaces files on this PC with the cloud saves, it backs up the current files; the newest five backups are kept." />
                                 </StackPanel>
                             </Border>
                         </StackPanel>
@@ -804,7 +650,7 @@
                                         <Button Grid.Column="2" Click="OpenCloudFiles_Click" IsEnabled="{Binding CanOpenCloudFiles}" Content="View Cloud Files" />
                                     </Grid>
                                     <Border Classes="divider" />
-                                    <TextBlock Classes="mutedSmall" Text="{Binding ComparisonStatus}" />
+                                    <TextBlock Classes="mutedSmall" Text="{Binding SyncDetail}" TextWrapping="Wrap" />
                                     <TextBlock Classes="mutedSmall" Text="{Binding Cloud.Notice}" />
                                     <SelectableTextBlock Text="{Binding CloudRevisionLine}" Classes="mono" IsVisible="{Binding HasCloudRevisionLine}" />
                                     <ProgressBar IsIndeterminate="True" IsVisible="{Binding Cloud.IsBusy}" />

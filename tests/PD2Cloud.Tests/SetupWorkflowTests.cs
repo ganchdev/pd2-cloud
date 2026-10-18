@@ -64,7 +64,7 @@ public sealed class SetupWorkflowTests : IDisposable
             await first.Local.SelectFolderAsync();
             Assert.True(first.CanContinueFolder);
             await first.CompleteAsync();
-            Assert.True(first.IsDashboard); Assert.Equal("Not yet synchronized", first.SyncStatus);
+            Assert.True(first.IsDashboard); Assert.Equal("Unsynced", first.SyncStatus);
         }
         handler.Offline = true;
         using var restarted = Create();
@@ -87,7 +87,7 @@ public sealed class SetupWorkflowTests : IDisposable
         await workflow.AcceptRepositoryAsync();
         Assert.True(workflow.IsGitHubSettings);
         Assert.Equal("player/other", workflow.RepositoryName);
-        Assert.Equal("Not yet synchronized", workflow.SyncStatus);
+        Assert.Equal("Unsynced", workflow.SyncStatus);
         Assert.Equal(new byte[] { 1, 2, 3 }, await File.ReadAllBytesAsync(Path.Combine(Source, "save")));
     }
 
@@ -248,7 +248,7 @@ public sealed class SetupWorkflowTests : IDisposable
         await File.WriteAllBytesAsync(Path.Combine(Source, "save.bin"), [0, 255, 1]);
         await workflow.Local.RefreshAsync();
         Assert.Single(workflow.Local.Files); Assert.True(workflow.Local.Manifest!.IsValid);
-        Assert.Null(workflow.Comparison);
+        Assert.NotEqual(SyncState.InSync, workflow.Sync.State);
         await workflow.GitHub.ReloadAsync(); await startup;
         Assert.Null(workflow.Cloud.Result); Assert.False(workflow.Cloud.IsBusy);
         Assert.Equal(new byte[] { 0, 255, 1 }, await File.ReadAllBytesAsync(Path.Combine(Source, "save.bin")));
@@ -265,9 +265,9 @@ public sealed class SetupWorkflowTests : IDisposable
         handler.Requests.Clear(); await workflow.CheckCloudAsync();
         Assert.Same(inspection, workflow.Local.Manifest);
         Assert.DoesNotContain("/user", handler.Requests);
-        Assert.Equal("Not yet synchronized", workflow.SyncStatus);
+        Assert.Equal("Nothing to sync yet", workflow.SyncStatus);
         workflow.OpenSettings(); await workflow.GitHub.ReloadAsync();
-        Assert.Null(workflow.Cloud.Result); Assert.Null(workflow.Comparison);
+        Assert.Null(workflow.Cloud.Result); Assert.Equal(SyncState.Unavailable, workflow.Sync.State);
         await workflow.CheckCloudAsync(); Assert.True(workflow.IsGitHubSettings);
         Assert.NotNull(workflow.Cloud.Result); Assert.Same(inspection, workflow.Local.Manifest);
         Assert.Equal(Source, (await Settings.LoadAsync()).SelectedFolder);

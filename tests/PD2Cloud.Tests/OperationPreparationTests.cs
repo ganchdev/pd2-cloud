@@ -38,6 +38,15 @@ public sealed class OperationPreparationTests : IDisposable
         ? Directory.GetFiles(path, "*", SearchOption.AllDirectories).ToDictionary(p => Path.GetRelativePath(path, p), p => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(p))))
         : [];
 
+    // Evidence only lives for one sync: a later preparation replaces anything left behind instead of requiring review.
+    private async Task AssertNextPreparationDiscardsLeftovers(OperationPreparationStore store)
+    {
+        var next = await store.PrepareAsync(Source);
+        var remaining = Assert.Single(await store.AssessRecoveryAsync());
+        Assert.Equal(next.OperationId, remaining.OperationId);
+        Assert.Equal(RecoveryStatus.Prepared, remaining.Status);
+    }
+
     [Fact]
     public async Task CompleteCaptureAndBackupSurviveRestartWithoutChangingAnySourceOrBaseline()
     {
@@ -61,7 +70,7 @@ public sealed class OperationPreparationTests : IDisposable
         Assert.Equal(operation, recovered.Operation! with { Files = operation.Files });
         Assert.Equal(RecoveryStatus.Prepared, Assert.Single(await Store().AssessRecoveryAsync()).Status);
         Assert.Equal(evidence.OrderBy(p => p.Key), Bytes(Recovery).OrderBy(p => p.Key));
-        await Assert.ThrowsAsync<RecoveryBlockedException>(() => Store().PrepareAsync(Source));
+        await AssertNextPreparationDiscardsLeftovers(Store());
     }
 
     [Fact]
@@ -144,7 +153,7 @@ public sealed class OperationPreparationTests : IDisposable
                 result.Status == RecoveryStatus.Prepared);
             Assert.Equal(before.OrderBy(p => p.Key), Bytes(app).OrderBy(p => p.Key));
             Assert.Equal(new byte[] { 0, 255, 1 }, await File.ReadAllBytesAsync(Path.Combine(Source, "opaque")));
-            await Assert.ThrowsAsync<RecoveryBlockedException>(() => restarted.PrepareAsync(Source));
+            await AssertNextPreparationDiscardsLeftovers(restarted);
         }
     }
 
@@ -223,7 +232,7 @@ public sealed class OperationPreparationTests : IDisposable
     [InlineData("unknown-operation-entry")]
     [InlineData("pending-bytes")]
     [InlineData("missing-source")]
-    public async Task UnexpectedEvidenceOrUnavailableSourceCannotAuthorizePreparationReuse(string condition)
+    public async Task UnexpectedEvidenceIsBlockedForAssessmentAndDiscardedByTheNextPreparation(string condition)
     {
         Populate();
         var operation = await Store().PrepareAsync(Source);
@@ -233,7 +242,8 @@ public sealed class OperationPreparationTests : IDisposable
         else Directory.Move(Source, Source + "-moved");
         Assert.Equal(condition == "missing-source" ? RecoveryStatus.SourceChanged : RecoveryStatus.Blocked,
             Assert.Single(await Store().AssessRecoveryAsync()).Status);
-        await Assert.ThrowsAsync<RecoveryBlockedException>(() => Store().PrepareAsync(Source));
+        if (condition == "missing-source") await Assert.ThrowsAnyAsync<Exception>(() => Store().PrepareAsync(Source));
+        else await AssertNextPreparationDiscardsLeftovers(Store());
     }
 
     [Fact]
@@ -287,7 +297,7 @@ public sealed class OperationPreparationTests : IDisposable
         });
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => store.PrepareAsync(Source, cancellation.Token));
         Assert.Equal(RecoveryStatus.Interrupted, Assert.Single(await Store().AssessRecoveryAsync()).Status);
-        await Assert.ThrowsAsync<RecoveryBlockedException>(() => Store().PrepareAsync(Source));
+        await AssertNextPreparationDiscardsLeftovers(Store());
     }
 
     [Fact]

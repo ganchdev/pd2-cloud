@@ -167,21 +167,6 @@ public sealed partial class GitHubApi(HttpClient http, string clientId, TimeProv
         throw new ConnectionException("GitHub repository listing exceeded the supported limit. Narrow the app installation access.");
     }
 
-    internal async Task<string> CompareCommitsAsync(RepositoryChoice repository, string token, string baseCommit, string headCommit, CancellationToken ct)
-    {
-        var url = RepositoryUrl(repository) + "/compare/" + Uri.EscapeDataString(baseCommit) + "..." + Uri.EscapeDataString(headCommit);
-        var result = await SendAsync(HttpMethod.Get, url, token, null, ct).ConfigureAwait(false);
-        return Required(result, "status");
-    }
-
-    internal async Task<string> GetHeadCommitAsync(RepositoryChoice repository, string token, CancellationToken ct)
-    {
-        var result = await SendAsync(HttpMethod.Get, RepositoryUrl(repository) + "/commits?per_page=1", token, null, ct).ConfigureAwait(false);
-        var commits = result.EnumerateArray().ToArray();
-        if (commits.Length == 0) throw new ConnectionException("Remote head is unavailable.");
-        return Required(commits[0], "sha");
-    }
-
     private static string Required(JsonElement value, string name) =>
         value.TryGetProperty(name, out var field) && field.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(field.GetString())
             ? field.GetString()! : throw new ConnectionException("GitHub returned an incomplete response.");

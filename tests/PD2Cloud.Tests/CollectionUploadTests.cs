@@ -41,6 +41,7 @@ public sealed class CollectionUploadTests : IDisposable
     private static GitHubConnection Connection(Server server, Credentials? credentials = null) => new(new GitHubApi(new HttpClient(server), "client"), credentials ?? new());
     private LocalSyncStateStore SyncStateStore() => new(Data);
     private string Record(PreparedOperation op, string name) => Path.Combine(Data, "recovery", op.OperationId, "upload", name + ".json");
+    private bool EvidenceRemains(PreparedOperation op) => Directory.Exists(Path.Combine(Data, "recovery", op.OperationId));
 
     // Independent HTTP fixture retains unreachable objects, checks single-parent non-forced updates and serves real object bytes.
     internal sealed class Server : HttpMessageHandler
@@ -112,7 +113,6 @@ public sealed class CollectionUploadTests : IDisposable
                     "/repos/player/saves" => repo,
                     "/repos/player/saves/commits" => Head is null ? Array.Empty<object>() : new object[] { new { sha = Head } },
                     "/repos/player/saves/git/ref/heads/main" => new { @ref = "refs/heads/main", @object = new { type = "commit", sha = Head } },
-                    _ when path.StartsWith("/repos/player/saves/compare/", StringComparison.Ordinal) => CompareCommits(path),
                     _ => null
                 };
                 var id = path.Split('/').Last();
@@ -192,37 +192,10 @@ public sealed class CollectionUploadTests : IDisposable
             return Response(body);
         }
         private static HttpResponseMessage Response(object body, HttpStatusCode status = HttpStatusCode.OK) => new(status) { Content = new StringContent(JsonSerializer.Serialize(body)) };
-        private object CompareCommits(string path)
-        {
-            var parts = path["/repos/player/saves/compare/".Length..].Split("...");
-            if (parts.Length != 2) return new { status = "diverged" };
-            var baseCommit = parts[0];
-            var headCommit = parts[1];
-            if (!Commits.ContainsKey(baseCommit) || !Commits.ContainsKey(headCommit)) return new { status = "diverged" };
-            if (baseCommit == headCommit) return new { status = "identical" };
-            if (IsAncestor(baseCommit, headCommit)) return new { status = "ahead" };
-            if (IsAncestor(headCommit, baseCommit)) return new { status = "behind" };
-            return new { status = "diverged" };
-        }
-        private bool IsAncestor(string ancestor, string descendant)
-        {
-            var visited = new HashSet<string>(StringComparer.Ordinal);
-            var queue = new Queue<string>();
-            queue.Enqueue(descendant);
-            while (queue.Count > 0)
-            {
-                var current = queue.Dequeue();
-                if (current == ancestor) return true;
-                if (!visited.Add(current)) continue;
-                if (Commits.TryGetValue(current, out var info) && info.Parent is not null)
-                    queue.Enqueue(info.Parent);
-            }
-            return false;
-        }
     }
 
     [Fact]
-    public async Task UploadPreservesOpaqueBytesUnrelatedEntriesSourceSettingsAndNoBaseline()
+    public async Task UploadPreservesOpaqueBytesUnrelatedEntriesAndSourceSettingsAndDiscardsEvidence()
     {
         var op = await Store().PrepareAsync(Source);
         await File.WriteAllTextAsync(Path.Combine(Data, "settings.json"), "unrelated");
@@ -240,11 +213,11 @@ public sealed class CollectionUploadTests : IDisposable
         }
         Assert.Equal("unrelated", await File.ReadAllTextAsync(Path.Combine(Data, "settings.json")));
         Assert.True(File.Exists(Path.Combine(Data, "local-sync-state.json")));
-        Assert.True(File.Exists(Record(op, "published")));
-        Assert.Equal(RecoveryStatus.Blocked, Assert.Single(await Store().AssessRecoveryAsync()).Status);
-        await Assert.ThrowsAsync<RecoveryBlockedException>(() => uploader.UploadAsync(Request(op)));
+        Assert.False(EvidenceRemains(op));
+        Assert.Empty(await Store().AssessRecoveryAsync());
+        // The operation is spent; it can never be published a second time.
+        await Assert.ThrowsAnyAsync<Exception>(() => uploader.UploadAsync(Request(op)));
         Assert.Single(server.Writes, p => p.StartsWith("PATCH", StringComparison.Ordinal));
-        Assert.Equal(UploadStatus.Published, (await new CollectionUploader(Store(), Connection(server), SyncStateStore()).AssessRecoveryAsync(op.OperationId, Repository)).Status);
     }
 
     [Theory]
@@ -252,14 +225,13 @@ public sealed class CollectionUploadTests : IDisposable
     [InlineData("empty-tree")]
     [InlineData("unrelated")]
     [InlineData("incompatible")]
-    [InlineData("populated")]
     public async Task UnsupportedRepositoryNeverWrites(string classification)
     {
         var op = await Store().PrepareAsync(Source);
         var server = new Server(classification);
         await Assert.ThrowsAsync<RecoveryBlockedException>(() => new CollectionUploader(Store(), Connection(server), SyncStateStore()).UploadAsync(Request(op)));
         Assert.Empty(server.Writes);
-        Assert.False(File.Exists(Record(op, "intent")));
+        Assert.False(EvidenceRemains(op));
     }
 
     [Theory]
@@ -270,7 +242,6 @@ public sealed class CollectionUploadTests : IDisposable
     [InlineData("root")]
     [InlineData("head")]
     [InlineData("repository")]
-    [InlineData("baseline")]
     [InlineData("large-file")]
     public async Task ChangedOrUnsupportedEvidenceBlocksBeforeWrites(string fault)
     {
@@ -286,7 +257,6 @@ public sealed class CollectionUploadTests : IDisposable
         if (fault == "root") request = request with { SourceRoot = root };
         if (fault == "head") request = request with { PinnedCommit = new string('b', 40) };
         if (fault == "repository") request = request with { Repository = Repository with { Id = 2 } };
-        if (fault == "baseline") await File.WriteAllTextAsync(Path.Combine(Data, "local-sync-state.json"), "unverified baseline");
         var server = new Server();
         await Assert.ThrowsAnyAsync<Exception>(() => new CollectionUploader(Store(), Connection(server), SyncStateStore()).UploadAsync(request));
         Assert.Empty(server.Writes);
@@ -295,16 +265,16 @@ public sealed class CollectionUploadTests : IDisposable
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public async Task LostResponseAndRejectedUpdateAreAssessedWithoutReplay(bool published)
+    public async Task LostResponseAndRejectedUpdateLeaveNoEvidenceOrSyncRecord(bool published)
     {
         var op = await Store().PrepareAsync(Source);
         var server = new Server { LostResponse = published, RejectUpdate = !published };
         await Assert.ThrowsAnyAsync<Exception>(() => new CollectionUploader(Store(), Connection(server), SyncStateStore()).UploadAsync(Request(op)));
-        Assert.True(File.Exists(Record(op, "candidate")));
-        var writes = server.Writes.Count;
-        var restarted = new CollectionUploader(Store(), Connection(server), SyncStateStore());
-        for (var i = 0; i < 2; i++) Assert.Equal(published ? UploadStatus.Published : UploadStatus.NotPublished, (await restarted.AssessRecoveryAsync(op.OperationId, Repository)).Status);
-        Assert.Equal(writes, server.Writes.Count);
+        Assert.Equal(published, server.Head != Parent);
+        Assert.False(EvidenceRemains(op));
+        Assert.False(File.Exists(Path.Combine(Data, "local-sync-state.json")));
+        // A fresh sync prepares again; the next refresh decides from the repository itself.
+        Assert.NotEqual(op.OperationId, (await Store().PrepareAsync(Source)).OperationId);
     }
 
     [Theory]
@@ -323,10 +293,7 @@ public sealed class CollectionUploadTests : IDisposable
         };
         await Assert.ThrowsAnyAsync<Exception>(() => new CollectionUploader(Store(), Connection(server), SyncStateStore()).UploadAsync(Request(op)));
         Assert.Equal(competitor, server.Head);
-        var writes = server.Writes.Count;
-        server.Before = null;
-        Assert.Equal(UploadStatus.ConcurrentUpdate, (await new CollectionUploader(Store(), Connection(server), SyncStateStore()).AssessRecoveryAsync(op.OperationId, Repository)).Status);
-        Assert.Equal(writes, server.Writes.Count);
+        Assert.False(File.Exists(Path.Combine(Data, "local-sync-state.json")));
     }
 
     [Theory]
@@ -339,7 +306,7 @@ public sealed class CollectionUploadTests : IDisposable
         var server = new Server { BadBlob = fault == "blob", BadTree = fault == "tree", BadParent = fault == "parent" };
         await Assert.ThrowsAsync<ConnectionException>(() => new CollectionUploader(Store(), Connection(server), SyncStateStore()).UploadAsync(Request(op)));
         Assert.DoesNotContain(server.Writes, p => p.StartsWith("PATCH", StringComparison.Ordinal));
-        Assert.Equal(UploadStatus.Interrupted, (await new CollectionUploader(Store(), Connection(server), SyncStateStore()).AssessRecoveryAsync(op.OperationId, Repository)).Status);
+        Assert.False(EvidenceRemains(op));
     }
 
     [Fact]
@@ -354,47 +321,7 @@ public sealed class CollectionUploadTests : IDisposable
     }
 
     [Fact]
-    public async Task ChangedSourceAfterLostResponseDoesNotClaimSynchronization()
-    {
-        var op = await Store().PrepareAsync(Source);
-        var server = new Server { LostResponse = true };
-        await Assert.ThrowsAsync<HttpRequestException>(() => new CollectionUploader(Store(), Connection(server), SyncStateStore()).UploadAsync(Request(op)));
-        await File.WriteAllTextAsync(Path.Combine(Source, ".hidden"), "new edit");
-        var result = await new CollectionUploader(Store(), Connection(server), SyncStateStore()).AssessRecoveryAsync(op.OperationId, Repository);
-        Assert.Equal(UploadStatus.PublishedSourceChanged, result.Status);
-        Assert.Equal("new edit", File.ReadAllText(Path.Combine(Source, ".hidden")));
-        Assert.False(File.Exists(Path.Combine(Data, "local-sync-state.json")));
-    }
-
-    [Theory]
-    [InlineData("duplicate")]
-    [InlineData("unknown")]
-    [InlineData("future")]
-    [InlineData("binding")]
-    [InlineData("missing-intent")]
-    [InlineData("temporary")]
-    [InlineData("receipt")]
-    public async Task InvalidPublicationEvidenceBlocksRecoveryAndReplay(string fault)
-    {
-        var op = await Store().PrepareAsync(Source);
-        var server = new Server();
-        await new CollectionUploader(Store(), Connection(server), SyncStateStore()).UploadAsync(Request(op));
-        var path = Record(op, "candidate");
-        var text = File.ReadAllText(path);
-        if (fault == "duplicate") File.WriteAllText(path, text.Replace("{", "{\"SchemaVersion\":1,", StringComparison.Ordinal));
-        if (fault == "unknown") File.WriteAllText(path, text.Replace("{", "{\"Unknown\":1,", StringComparison.Ordinal));
-        if (fault == "future") File.WriteAllText(path, text.Replace("\"SchemaVersion\":1", "\"SchemaVersion\":2", StringComparison.Ordinal));
-        if (fault == "binding") File.WriteAllText(path, text.Replace("\"IntentDigest\":\"", "\"IntentDigest\":\"0", StringComparison.Ordinal));
-        if (fault == "missing-intent") File.Delete(Record(op, "intent"));
-        if (fault == "temporary") File.WriteAllText(path + ".tmp", "orphan");
-        if (fault == "receipt") File.WriteAllText(Record(op, "published"), "{}");
-        var writes = server.Writes.Count;
-        await Assert.ThrowsAsync<RecoveryBlockedException>(() => new CollectionUploader(Store(), Connection(server), SyncStateStore()).AssessRecoveryAsync(op.OperationId, Repository));
-        await Assert.ThrowsAsync<RecoveryBlockedException>(() => new CollectionUploader(Store(), Connection(server), SyncStateStore()).UploadAsync(Request(op)));
-        Assert.Equal(writes, server.Writes.Count);
-    }
-    [Fact]
-    public async Task EveryPublicationDurabilityBoundaryRecoversWithoutRepeatingRemoteWrites()
+    public async Task InterruptionAtEveryPublicationBoundaryDiscardsEvidenceAndPreservesSource()
     {
         var boundaries = new List<string>();
         var op = await Store().PrepareAsync(Source);
@@ -411,37 +338,22 @@ public sealed class CollectionUploadTests : IDisposable
                 if (b.StartsWith("Upload:", StringComparison.Ordinal) && seen++ == stop) throw new Interruption();
             });
             await Assert.ThrowsAsync<Interruption>(() => new CollectionUploader(interruptedStore, Connection(server), SyncStateStore()).UploadAsync(Request(prepared)));
-            var writes = server.Writes.Count;
-            var restarted = new CollectionUploader(fixture.Store(), Connection(server), SyncStateStore());
-            if (boundaries[stop].EndsWith("JournalTemporaryFlushed", StringComparison.Ordinal))
-            {
-                for (var repeat = 0; repeat < 2; repeat++)
-                    await Assert.ThrowsAsync<RecoveryBlockedException>(() => restarted.AssessRecoveryAsync(prepared.OperationId, Repository));
-            }
-            else
-            {
-                var expected = boundaries[stop].Contains("intent.json", StringComparison.Ordinal) ? UploadStatus.Interrupted
-                    : boundaries[stop].Contains("candidate.json", StringComparison.Ordinal) ? UploadStatus.NotPublished : UploadStatus.Published;
-                for (var repeat = 0; repeat < 2; repeat++) Assert.Equal(expected, (await restarted.AssessRecoveryAsync(prepared.OperationId, Repository)).Status);
-            }
-            Assert.Equal(writes, server.Writes.Count);
+            Assert.False(Directory.Exists(Path.Combine(fixture.Data, "recovery", prepared.OperationId)));
             Assert.False(File.Exists(Path.Combine(fixture.Data, "local-sync-state.json")));
-            foreach (var file in prepared.Files)
-                Assert.Equal(File.ReadAllBytes(Path.Combine(prepared.BackupDirectory, file.RelativePath)), File.ReadAllBytes(Path.Combine(fixture.Source, file.RelativePath)));
+            Assert.Equal(prepared.CollectionFingerprint, (await new CollectionScanner().ScanAsync(fixture.Source, default)).CollectionFingerprint);
         }
     }
 
     [Fact]
-    public async Task CancellationAfterDurableCandidateLeavesReadOnlyRecovery()
+    public async Task CancellationBeforePublicationNeverPublishes()
     {
         var op = await Store().PrepareAsync(Source);
         using var cancellation = new CancellationTokenSource();
         var store = Store(b => { if (b == "Upload:candidate.json:DirectoryFlushed") cancellation.Cancel(); });
         var server = new Server();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => new CollectionUploader(store, Connection(server), SyncStateStore()).UploadAsync(Request(op), cancellation.Token));
-        Assert.True(File.Exists(Record(op, "candidate")));
         Assert.DoesNotContain(server.Writes, p => p.StartsWith("PATCH", StringComparison.Ordinal));
-        Assert.Equal(UploadStatus.NotPublished, (await new CollectionUploader(Store(), Connection(server), SyncStateStore()).AssessRecoveryAsync(op.OperationId, Repository)).Status);
+        Assert.False(EvidenceRemains(op));
     }
 
     [Fact]
@@ -511,49 +423,7 @@ public sealed class CollectionUploadTests : IDisposable
         var result = await new CollectionUploader(Store(), Connection(server), SyncStateStore()).UploadAsync(Request(op));
         Assert.Equal(UploadStatus.PublishedSourceChanged, result.Status);
         Assert.Equal("external edit", File.ReadAllText(Path.Combine(Source, ".hidden")));
-        Assert.True(File.Exists(Record(op, "published")));
-    }
-
-    [Fact]
-    public async Task LaterHeadAfterLostResponseStaysUnresolvedWithoutAncestryInference()
-    {
-        var op = await Store().PrepareAsync(Source);
-        var server = new Server { LostResponse = true };
-        await Assert.ThrowsAsync<HttpRequestException>(() => new CollectionUploader(Store(), Connection(server), SyncStateStore()).UploadAsync(Request(op)));
-        var candidate = server.Head!;
-        var newer = new string('c', 40);
-        server.Commits[newer] = (server.Commits[candidate].Tree, candidate);
-        server.Head = newer;
-        var writes = server.Writes.Count;
-        Assert.Equal(UploadStatus.ConcurrentUpdate, (await new CollectionUploader(Store(), Connection(server), SyncStateStore()).AssessRecoveryAsync(op.OperationId, Repository)).Status);
-        Assert.Equal(writes, server.Writes.Count);
-        Assert.False(File.Exists(Record(op, "published")));
-    }
-
-    [Fact]
-    public async Task RewoundHeadAfterReceiptIsConcurrentUpdateRatherThanNeverPublished()
-    {
-        var op = await Store().PrepareAsync(Source);
-        var server = new Server();
-        await new CollectionUploader(Store(), Connection(server), SyncStateStore()).UploadAsync(Request(op));
-        server.Head = Parent;
-        Assert.Equal(UploadStatus.ConcurrentUpdate, (await new CollectionUploader(Store(), Connection(server), SyncStateStore()).AssessRecoveryAsync(op.OperationId, Repository)).Status);
-        Assert.Single(server.Writes, p => p.StartsWith("PATCH", StringComparison.Ordinal));
-    }
-
-    [Theory]
-    [InlineData("branch")]
-    [InlineData("repository")]
-    public async Task RecoveryCannotReuseEvidenceForAnotherPairing(string fault)
-    {
-        var op = await Store().PrepareAsync(Source);
-        var server = new Server { LostResponse = true };
-        await Assert.ThrowsAsync<HttpRequestException>(() => new CollectionUploader(Store(), Connection(server), SyncStateStore()).UploadAsync(Request(op)));
-        var repository = fault == "branch" ? Repository with { DefaultBranch = "other" } : Repository with { Id = 2 };
-        var credentials = new Credentials { Value = JsonSerializer.Serialize(new ConnectionCredentials { ClientId = "client", AccessToken = "token", Repository = repository }) };
-        var writes = server.Writes.Count;
-        await Assert.ThrowsAsync<RecoveryBlockedException>(() => new CollectionUploader(Store(), Connection(server, credentials), SyncStateStore()).AssessRecoveryAsync(op.OperationId, repository));
-        Assert.Equal(writes, server.Writes.Count);
+        Assert.False(EvidenceRemains(op));
     }
 
     [Fact]
@@ -637,100 +507,6 @@ public sealed class CollectionUploadTests : IDisposable
         Assert.True(document.RootElement.TryGetProperty("CollectionFingerprint", out _));
     }
 
-    [Fact]
-    public async Task AssessmentDoesNotWriteSyncState()
-    {
-        var op = await Store().PrepareAsync(Source);
-        var server = new Server();
-        var uploader = new CollectionUploader(Store(), Connection(server), SyncStateStore());
-        await uploader.UploadAsync(Request(op));
-        var assessmentStore = SyncStateStore();
-        var result = await assessmentStore.LoadAsync();
-        Assert.NotNull(result.State);
-        var uploader2 = new CollectionUploader(Store(), Connection(server), assessmentStore);
-        Assert.Equal(UploadStatus.Published, (await uploader2.AssessRecoveryAsync(op.OperationId, Repository)).Status);
-        var (stateAfterAssessment, _) = await assessmentStore.LoadAsync();
-        Assert.NotNull(stateAfterAssessment);
-        Assert.Equal(result.State!.LastSynchronizedCommit, stateAfterAssessment.LastSynchronizedCommit);
-    }
-
-    [Fact]
-    public async Task VerifyBaselineAncestryReturnsTrueWhenSavedCommitIsAncestor()
-    {
-        var op = await Store().PrepareAsync(Source);
-        var server = new Server();
-        var uploader = new CollectionUploader(Store(), Connection(server), SyncStateStore());
-        var result = await uploader.UploadAsync(Request(op));
-        Assert.Equal(UploadStatus.Published, result.Status);
-        var descendant = new string('b', 40);
-        server.Commits[descendant] = (server.Commits[server.Head!].Tree, server.Head);
-        server.Head = descendant;
-        var syncStatePath = Path.Combine(Data, "local-sync-state.json");
-        var json = JsonNode.Parse(await File.ReadAllTextAsync(syncStatePath))!.AsObject();
-        var savedCommit = json["LastSynchronizedCommit"]!.GetValue<string>();
-        var state = new LocalSyncState(1, Repository.FullName, Repository.DefaultBranch,
-            savedCommit, op.SourceRoot, op.Files, DateTimeOffset.UtcNow, op.CollectionFingerprint);
-        var uploader2 = new CollectionUploader(Store(), Connection(server), SyncStateStore());
-        var (isAncestor, notice) = await uploader2.VerifyBaselineAncestryAsync(state);
-        Assert.True(isAncestor);
-        Assert.Null(notice);
-    }
-
-    [Fact]
-    public async Task VerifyBaselineAncestryReturnsTrueWhenSavedCommitEqualsCurrentHead()
-    {
-        var op = await Store().PrepareAsync(Source);
-        var server = new Server();
-        var uploader = new CollectionUploader(Store(), Connection(server), SyncStateStore());
-        var result = await uploader.UploadAsync(Request(op));
-        Assert.Equal(UploadStatus.Published, result.Status);
-        var syncStatePath = Path.Combine(Data, "local-sync-state.json");
-        var json = JsonNode.Parse(await File.ReadAllTextAsync(syncStatePath))!.AsObject();
-        var savedCommit = json["LastSynchronizedCommit"]!.GetValue<string>();
-        var state = new LocalSyncState(1, Repository.FullName, Repository.DefaultBranch,
-            savedCommit, op.SourceRoot, op.Files, DateTimeOffset.UtcNow, op.CollectionFingerprint);
-        var uploader2 = new CollectionUploader(Store(), Connection(server), SyncStateStore());
-        var (isAncestor, notice) = await uploader2.VerifyBaselineAncestryAsync(state);
-        Assert.True(isAncestor);
-        Assert.Null(notice);
-    }
-
-    [Fact]
-    public async Task VerifyBaselineAncestryReturnsFalseWhenSavedCommitIsNotAncestor()
-    {
-        var op = await Store().PrepareAsync(Source);
-        var server = new Server();
-        var uploader = new CollectionUploader(Store(), Connection(server), SyncStateStore());
-        await uploader.UploadAsync(Request(op));
-        var unrelatedRoot = new string('e', 40);
-        var unrelatedCommit = new string('d', 40);
-        server.Commits[unrelatedRoot] = (server.Commits[server.Head!].Tree, null);
-        server.Commits[unrelatedCommit] = (server.Commits[server.Head!].Tree, unrelatedRoot);
-        server.Head = unrelatedCommit;
-        var syncStatePath = Path.Combine(Data, "local-sync-state.json");
-        var json = JsonNode.Parse(await File.ReadAllTextAsync(syncStatePath))!.AsObject();
-        var savedCommit = json["LastSynchronizedCommit"]!.GetValue<string>();
-        var state = new LocalSyncState(1, Repository.FullName, Repository.DefaultBranch,
-            savedCommit, op.SourceRoot, op.Files, DateTimeOffset.UtcNow, op.CollectionFingerprint);
-        var uploader2 = new CollectionUploader(Store(), Connection(server), SyncStateStore());
-        var (isAncestor, notice) = await uploader2.VerifyBaselineAncestryAsync(state);
-        Assert.False(isAncestor);
-        Assert.NotNull(notice);
-        Assert.Contains("ancestor", notice);
-    }
-
-    [Fact]
-    public async Task VerifyBaselineAncestryReturnsFalseForInvalidState()
-    {
-        var server = new Server();
-        var uploader = new CollectionUploader(Store(), Connection(server), SyncStateStore());
-        var invalidState = new LocalSyncState(2, Repository.FullName, Repository.DefaultBranch,
-            new string('a', 40), "/saves", [], DateTimeOffset.UtcNow, "fp");
-        var (isAncestor, notice) = await uploader.VerifyBaselineAncestryAsync(invalidState);
-        Assert.False(isAncestor);
-        Assert.NotNull(notice);
-    }
-
     private static UploadRequest Bootstrap(PreparedOperation op, RepositoryBootstrapCase bootstrap, string pinned = "") =>
         new(op.OperationId, op.SourceRoot, op.CollectionFingerprint, Repository, pinned, bootstrap);
 
@@ -756,10 +532,7 @@ public sealed class CollectionUploadTests : IDisposable
         Assert.Single(server.Writes, p => p.StartsWith("PATCH", StringComparison.Ordinal));
         Assert.DoesNotContain(server.Writes, p => p.StartsWith("POST /repos/player/saves/git/refs", StringComparison.Ordinal));
         Assert.True(File.Exists(Path.Combine(Data, "local-sync-state.json")));
-        Assert.True(File.Exists(Record(op, "published")));
-        // A second upload is still blocked after bootstrap.
-        await Assert.ThrowsAsync<RecoveryBlockedException>(() => new CollectionUploader(Store(), Connection(server), SyncStateStore())
-            .UploadAsync(Bootstrap(op, RepositoryBootstrapCase.UnbornRepository)));
+        Assert.False(EvidenceRemains(op));
     }
 
     [Fact]
@@ -813,25 +586,23 @@ public sealed class CollectionUploadTests : IDisposable
         await Assert.ThrowsAsync<RecoveryBlockedException>(() => new CollectionUploader(Store(), Connection(server), SyncStateStore())
             .UploadAsync(Bootstrap(op, bootstrap, pinned)));
         Assert.Empty(server.Writes);
-        Assert.False(File.Exists(Record(op, "intent")));
+        Assert.False(EvidenceRemains(op));
     }
 
     [Theory]
     [InlineData("unborn", RepositoryBootstrapCase.UnbornRepository)]
     [InlineData("empty-tree", RepositoryBootstrapCase.EmptyTree)]
     [InlineData("unrelated", RepositoryBootstrapCase.Unrelated)]
-    public async Task LostBootstrapResponseIsRecoveredWithoutReplayOrBaseline(string classification, RepositoryBootstrapCase bootstrap)
+    public async Task LostBootstrapResponseLeavesPublicationWithoutReplayOrSyncRecord(string classification, RepositoryBootstrapCase bootstrap)
     {
         var op = await Store().PrepareAsync(Source);
         var server = new Server(classification) { LostResponse = true };
         var pinned = bootstrap == RepositoryBootstrapCase.UnbornRepository ? "" : Parent;
         await Assert.ThrowsAnyAsync<Exception>(() => new CollectionUploader(Store(), Connection(server), SyncStateStore())
             .UploadAsync(Bootstrap(op, bootstrap, pinned)));
-        Assert.True(File.Exists(Record(op, "candidate")));
-        var writes = server.Writes.Count;
-        var restarted = new CollectionUploader(Store(), Connection(server), SyncStateStore());
-        for (var i = 0; i < 2; i++) Assert.Equal(UploadStatus.Published, (await restarted.AssessRecoveryAsync(op.OperationId, Repository)).Status);
-        Assert.Equal(writes, server.Writes.Count);
+        Assert.Single(server.Writes, p => p.StartsWith("PATCH", StringComparison.Ordinal));
+        Assert.Contains(server.Expand(server.Commits[server.Head!].Tree), e => e.Path == CloudStorage.ManifestPath);
+        Assert.False(EvidenceRemains(op));
         Assert.False(File.Exists(Path.Combine(Data, "local-sync-state.json")));
     }
 
@@ -846,45 +617,19 @@ public sealed class CollectionUploadTests : IDisposable
         await Assert.ThrowsAnyAsync<Exception>(() => new CollectionUploader(Store(), Connection(server), SyncStateStore())
             .UploadAsync(Bootstrap(op, RepositoryBootstrapCase.UnbornRepository)));
         Assert.Equal(competitor, server.Head);
-        var writes = server.Writes.Count;
-        server.Before = null;
-        Assert.Equal(UploadStatus.ConcurrentUpdate, (await new CollectionUploader(Store(), Connection(server), SyncStateStore()).AssessRecoveryAsync(op.OperationId, Repository)).Status);
-        Assert.Equal(writes, server.Writes.Count);
         Assert.False(File.Exists(Path.Combine(Data, "local-sync-state.json")));
     }
 
     [Fact]
-    public async Task UnbornBootstrapSeedFailureRetainsIntentOnlyAndNeverClaimsPublication()
+    public async Task UnbornBootstrapSeedFailureNeverClaimsPublication()
     {
         var op = await Store().PrepareAsync(Source);
         var server = new Server("unborn") { RejectSeed = true };
         await Assert.ThrowsAsync<ConnectionException>(() => new CollectionUploader(Store(), Connection(server), SyncStateStore())
             .UploadAsync(Bootstrap(op, RepositoryBootstrapCase.UnbornRepository)));
         Assert.Null(server.Head);
-        Assert.True(File.Exists(Record(op, "intent")));
-        Assert.False(File.Exists(Record(op, "candidate")));
+        Assert.False(EvidenceRemains(op));
         Assert.False(File.Exists(Path.Combine(Data, "local-sync-state.json")));
-        Assert.Equal(UploadStatus.Interrupted, (await new CollectionUploader(Store(), Connection(server), SyncStateStore()).AssessRecoveryAsync(op.OperationId, Repository)).Status);
-    }
-
-    [Theory]
-    [InlineData("unborn", RepositoryBootstrapCase.UnbornRepository, "Initialize", true)]
-    [InlineData("empty-tree", RepositoryBootstrapCase.EmptyTree, "Bootstrap", false)]
-    [InlineData("unrelated", RepositoryBootstrapCase.Unrelated, "Adopt", false)]
-    public async Task BootstrapDirectionIsBoundInDurablePublicationEvidence(string classification, RepositoryBootstrapCase bootstrap, string direction, bool noParent)
-    {
-        var op = await Store().PrepareAsync(Source);
-        var server = new Server(classification);
-        var pinned = bootstrap == RepositoryBootstrapCase.UnbornRepository ? "" : Parent;
-        var result = await new CollectionUploader(Store(), Connection(server), SyncStateStore()).UploadAsync(Bootstrap(op, bootstrap, pinned));
-        Assert.Equal(UploadStatus.Published, result.Status);
-        var intent = JsonNode.Parse(await File.ReadAllTextAsync(Record(op, "intent")))!.AsObject();
-        Assert.Equal(direction, intent["Direction"]!.GetValue<string>());
-        if (noParent) { Assert.Null(intent["Parent"]); Assert.Null(intent["OriginalTree"]); }
-        else { Assert.Equal(Parent, intent["Parent"]!.GetValue<string>()); Assert.NotNull(intent["OriginalTree"]); }
-        var candidate = JsonNode.Parse(await File.ReadAllTextAsync(Record(op, "candidate")))!.AsObject();
-        Assert.Equal(direction, candidate["Direction"]!.GetValue<string>());
-        Assert.True(File.Exists(Record(op, "published")));
     }
 
 }

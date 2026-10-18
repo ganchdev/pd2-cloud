@@ -7,31 +7,26 @@ using PD2Cloud.Local;
 
 namespace PD2Cloud.Remote;
 
-/// <summary>Explicit reviewed pairing, independent of Prepared evidence. Initial upload, replacement push or explicit bootstrap only.</summary>
+/// <summary>Uploads one prepared local snapshot on top of the pinned repository revision it was compared with.</summary>
 public sealed record UploadRequest(string OperationId, string SourceRoot, string CollectionFingerprint,
-    RepositoryChoice Repository, string PinnedCommit, RepositoryBootstrapCase Bootstrap = RepositoryBootstrapCase.None,
-    UploadMode Mode = UploadMode.Initial);
-
-public enum UploadMode { Initial, ReplaceManaged }
+    RepositoryChoice Repository, string PinnedCommit, RepositoryBootstrapCase Bootstrap = RepositoryBootstrapCase.None);
 
 /// <summary>
-/// The reviewed repository classification. None is the ordinary initial-upload case into an already managed,
-/// verified empty collection. The others are explicit, user-confirmed bootstrap directions and never implicit.
+/// The pinned repository classification. None replaces an existing managed collection (empty or not). The others
+/// set up cloud storage in a repository that has none yet.
 /// </summary>
 public enum RepositoryBootstrapCase { None, UnbornRepository, EmptyTree, Unrelated }
 
-public enum UploadStatus { Published, PublishedSourceChanged, NotPublished, ConcurrentUpdate, Interrupted }
-/// <summary>Publication evidence only; never a successfully synchronized baseline.</summary>
+public enum UploadStatus { Published, PublishedSourceChanged, NotPublished, ConcurrentUpdate }
 public sealed record UploadResult(UploadStatus Status, string? CandidateCommit);
 
-/// <summary>No UI/background caller. Never initializes or adopts a repository without an explicit confirmed request and never replaces source files.</summary>
+/// <summary>Publishes a prepared snapshot with one non-forced branch update. Never replaces source files.</summary>
 public sealed class CollectionUploader(OperationPreparationStore preparations, GitHubConnection connection, LocalSyncStateStore syncStateStore)
 {
     private const string UploadDirection = "Upload";
     private const string InitializeDirection = "Initialize";
     private const string BootstrapDirection = "Bootstrap";
     private const string AdoptDirection = "Adopt";
-    private const string ReplaceDirection = "Replace";
     // Local-only placeholder used to round-trip verify a generated tree for an unborn repository before any object is posted.
     private const string UnbornVerificationCommit = "0000000000000000000000000000000000000000";
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -45,10 +40,9 @@ public sealed class CollectionUploader(OperationPreparationStore preparations, G
     private sealed record Receipt(int SchemaVersion, string CandidateDigest, string Commit);
 
     public Task<UploadResult> UploadAsync(UploadRequest request, CancellationToken ct = default) =>
-        preparations.CoordinateUploadAsync(request.OperationId, true, evidence =>
+        preparations.CoordinateUploadAsync(request.OperationId, evidence =>
             connection.CoordinateRepositoryAsync(request.Repository, async writer =>
             {
-                Require(evidence.ReadRecords().Count == 0, "Publication already started. Assess recovery; do not replay upload.");
                 var operation = evidence.Operation;
                 Require(request.SourceRoot == operation.SourceRoot && request.CollectionFingerprint == operation.CollectionFingerprint
                     && operation.Files.Count > 0
@@ -124,32 +118,27 @@ public sealed class CollectionUploader(OperationPreparationStore preparations, G
                     await syncStateStore.SaveSyncStateAsync(syncState).ConfigureAwait(false);
                 }
                 return result;
-            }, ct), ct, request.Mode == UploadMode.ReplaceManaged);
+            }, ct), ct);
 
     private static void ValidateReviewedState(UploadRequest request, RepositorySnapshot original, CloudReadResult verified)
     {
         switch (request.Bootstrap)
         {
-            case RepositoryBootstrapCase.None when request.Mode == UploadMode.ReplaceManaged:
-                Require(original.Commit == request.PinnedCommit && verified.Content == RepositoryContent.ManagedCollection,
-                    "The verified managed collection changed. Refresh and review the resolution again; nothing was written.");
-                break;
             case RepositoryBootstrapCase.None:
-                Require(original.Commit == request.PinnedCommit && verified.Content == RepositoryContent.ManagedCollection
-                    && verified.Collection!.Manifest!.Files.Count == 0,
-                    "Only an initial upload to a pinned, verified empty managed collection is supported. Review the repository classification again.");
+                Require(original.Commit == request.PinnedCommit && verified.Content == RepositoryContent.ManagedCollection,
+                    "The cloud saves changed. Refresh and sync again; nothing was written.");
                 break;
             case RepositoryBootstrapCase.UnbornRepository:
                 Require(original.Commit is null && original.Tree is null && verified.Content == RepositoryContent.EmptyRepository,
-                    "The repository is no longer unborn. Refresh and review again; nothing was written.");
+                    "The repository changed. Refresh and sync again; nothing was written.");
                 break;
             case RepositoryBootstrapCase.EmptyTree:
                 Require(original.Commit == request.PinnedCommit && verified.Content == RepositoryContent.EmptyRepository,
-                    "The pinned empty revision changed. Refresh and review again; nothing was written.");
+                    "The repository changed. Refresh and sync again; nothing was written.");
                 break;
             case RepositoryBootstrapCase.Unrelated:
                 Require(original.Commit == request.PinnedCommit && verified.Content == RepositoryContent.Unrelated,
-                    "The repository contents changed. Refresh and review again; nothing was written.");
+                    "The repository changed. Refresh and sync again; nothing was written.");
                 break;
             default:
                 throw new RecoveryBlockedException("Unsupported bootstrap direction.");
@@ -158,53 +147,12 @@ public sealed class CollectionUploader(OperationPreparationStore preparations, G
 
     private static string DirectionOf(UploadRequest request) => request.Bootstrap switch
     {
-        RepositoryBootstrapCase.None => request.Mode == UploadMode.ReplaceManaged ? ReplaceDirection : UploadDirection,
+        RepositoryBootstrapCase.None => UploadDirection,
         RepositoryBootstrapCase.UnbornRepository => InitializeDirection,
         RepositoryBootstrapCase.EmptyTree => BootstrapDirection,
         RepositoryBootstrapCase.Unrelated => AdoptDirection,
         _ => throw new RecoveryBlockedException("Unsupported bootstrap direction.")
     };
-
-    public async Task<(bool IsAncestor, string? Notice)> VerifyBaselineAncestryAsync(LocalSyncState state, CancellationToken ct = default)
-    {
-        if (state.SchemaVersion != 1 || string.IsNullOrEmpty(state.LastSynchronizedCommit)
-            || string.IsNullOrEmpty(state.RepositoryIdentity) || string.IsNullOrEmpty(state.Branch))
-            return (false, "Invalid sync state for ancestry verification.");
-        var repository = new RepositoryChoice(0, state.RepositoryIdentity, state.Branch);
-        var status = await connection.VerifyAncestryAsync(repository, state.LastSynchronizedCommit, ct).ConfigureAwait(false);
-        return status is "ahead" or "identical"
-            ? (true, null)
-            : (false, "Saved sync commit is not an ancestor of the current remote head. The sync state has been preserved for review.");
-    }
-
-    public Task<UploadResult> AssessRecoveryAsync(string operationId, RepositoryChoice repository, CancellationToken ct = default) =>
-        preparations.CoordinateUploadAsync(operationId, false, evidence =>
-            connection.CoordinateRepositoryAsync(repository, async writer =>
-            {
-                var records = evidence.ReadRecords();
-                Require(records.TryGetValue("intent.json", out _), "No upload intent. Prepared is not publication authorization.");
-                var intentBytes = records["intent.json"];
-                var intent = Decode<Intent>(intentBytes);
-                var op = evidence.Operation;
-                Require(intent.SchemaVersion == 1 && IsDirection(intent.Direction) && intent.OperationId == op.OperationId
-                    && intent.SourceRoot == op.SourceRoot && intent.Fingerprint == op.CollectionFingerprint && intent.PreparationDigest == evidence.PreparationDigest
-                    && intent.Repository == repository, "Publication binding is invalid.");
-                ValidateIntentShape(intent);
-                if (!records.TryGetValue("candidate.json", out var bytes))
-                {
-                    Require(records.Count == 1, "Publication chain is incomplete.");
-                    return new UploadResult(UploadStatus.Interrupted, null);
-                }
-                var candidate = Decode<Candidate>(bytes);
-                Require(candidate.SchemaVersion == 1 && candidate.Direction == intent.Direction
-                    && candidate.IntentDigest == Digest(intentBytes) && IsId(candidate.Commit) && IsId(candidate.Tree), "Candidate record is invalid.");
-                if (records.TryGetValue("published.json", out var receiptBytes))
-                {
-                    var receipt = Decode<Receipt>(receiptBytes);
-                    Require(receipt.SchemaVersion == 1 && receipt.CandidateDigest == Digest(bytes) && receipt.Commit == candidate.Commit, "Publication receipt is invalid.");
-                }
-                return await ConfirmAsync(evidence, writer, intent, candidate, bytes, ct).ConfigureAwait(false);
-            }, ct), ct);
 
     private static async Task<UploadResult> ConfirmAsync(UploadEvidence evidence, RepositoryWriter writer, Intent intent, Candidate candidate, byte[] candidateBytes, CancellationToken ct)
     {
@@ -242,36 +190,6 @@ public sealed class CollectionUploader(OperationPreparationStore preparations, G
         .Select(e => e with { Path = e.Path[(e.Path.LastIndexOf('/') + 1)..] }).ToArray();
     private static void ValidateLimits(IReadOnlyList<FileEntry> files) => Require(files.Count <= CloudStorage.MaxFiles && files.All(f => f.SizeBytes <= CloudStorage.MaxFileBytes), "Upload exceeds file limits.");
     private static byte[] Encode<T>(T record) => JsonSerializer.SerializeToUtf8Bytes(record, JsonOptions);
-    private static T Decode<T>(byte[] bytes)
-    {
-        try
-        {
-            using var json = JsonDocument.Parse(bytes);
-            CheckDuplicates(json.RootElement);
-            return JsonSerializer.Deserialize<T>(bytes, JsonOptions) ?? throw new JsonException();
-        }
-        catch (Exception ex) when (ex is JsonException or InvalidOperationException or ArgumentException)
-        { throw new RecoveryBlockedException("Publication evidence is corrupt or unsupported. Retain it for review."); }
-    }
-    private static void CheckDuplicates(JsonElement element)
-    {
-        if (element.ValueKind != JsonValueKind.Object) return;
-        var names = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var property in element.EnumerateObject())
-        {
-            if (!names.Add(property.Name)) throw new JsonException();
-            CheckDuplicates(property.Value);
-        }
-    }
-    private static bool IsDirection(string direction) => direction is UploadDirection or InitializeDirection or BootstrapDirection or AdoptDirection or ReplaceDirection;
-    // Initialize publishes a zero-parent root commit, so it has no parent/original tree to bind.
-    private static void ValidateIntentShape(Intent intent)
-    {
-        if (intent.Direction == InitializeDirection)
-            Require(intent.Parent is null && intent.OriginalTree is null, "Publication binding is invalid.");
-        else
-            Require(IsId(intent.Parent) && IsId(intent.OriginalTree), "Publication binding is invalid.");
-    }
     private static bool IsId(string? id) => id is { Length: 40 } && id.All(char.IsAsciiHexDigitLower);
     private static string Digest(byte[] bytes) => Convert.ToHexStringLower(SHA256.HashData(bytes));
     private static void Require(bool condition, string message) { if (!condition) throw new RecoveryBlockedException(message); }

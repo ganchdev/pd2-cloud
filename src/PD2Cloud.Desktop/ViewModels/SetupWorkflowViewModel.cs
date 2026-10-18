@@ -5,7 +5,7 @@ using PD2Cloud.Remote;
 
 namespace PD2Cloud.Desktop.ViewModels;
 
-public enum SetupScreen { Loading, Welcome, Connect, Authorize, Repository, Folder, Dashboard, Files, Settings, UploadReview, Recovery, Resolve }
+public enum SetupScreen { Loading, Welcome, Connect, Authorize, Repository, Folder, Dashboard, Files, Settings }
 public enum SettingsSection { General, GitHub, Saves }
 public enum ConnectionJourney { Onboarding, Connect, Reconnect, ChangeRepository }
 
@@ -45,9 +45,6 @@ public sealed class SetupWorkflowViewModel : INotifyPropertyChanged, IDisposable
     public bool IsFolder => Screen == SetupScreen.Folder;
     public bool IsDashboard => Screen == SetupScreen.Dashboard;
     public bool IsSettings => Screen == SetupScreen.Settings;
-    public bool IsUploadReview => Screen == SetupScreen.UploadReview;
-    public bool IsRecovery => Screen == SetupScreen.Recovery;
-    public bool IsResolve => Screen == SetupScreen.Resolve;
     public bool IsFiles => Screen == SetupScreen.Files;
     public bool IsGeneralSettings => IsSettings && Section == SettingsSection.General;
     public bool IsGitHubSettings => IsSettings && Section == SettingsSection.GitHub;
@@ -119,152 +116,54 @@ public sealed class SetupWorkflowViewModel : INotifyPropertyChanged, IDisposable
     }
     public bool HasLocalFiles => LocalFileGroups.Count > 0;
     public IReadOnlyList<FileRow> LocalRows => LocalFileGroups.SelectMany(group => group.Rows).ToArray();
-    public IReadOnlyList<FileGroupHeader> ReviewFileGroups => FileBrowser.Group(Sync.ReviewFiles, null);
 
     // Shell chrome state.
-    public bool IsSavesNavActive => IsDashboard || IsFiles || IsUploadReview || IsRecovery || IsResolve;
-    public bool CanNavigateSaves => Local.SetupCompleted || IsDashboard || IsFiles || IsUploadReview || IsRecovery || IsResolve;
+    public bool IsSavesNavActive => IsDashboard || IsFiles;
+    public bool CanNavigateSaves => Local.SetupCompleted || IsDashboard || IsFiles;
     public bool ShowTitleBarSettings => IsDashboard;
-    public bool ShowTitleBarBack => IsFiles || IsSettings || IsUploadReview || IsRecovery || IsResolve;
+    public bool ShowTitleBarBack => IsFiles || IsSettings;
     public bool ShowSidebar => true;
 
-    public string BaselineLine => Sync.Baseline is { } baseline
-        ? $"Last synchronized revision {ShortCommit(baseline.LastSynchronizedCommit)} on {baseline.SynchronizedAt.ToLocalTime():dd/MM/yyyy HH:mm}"
-        : "";
+    public string BaselineLine => Sync.LastSyncedLine;
     public bool HasBaselineLine => BaselineLine.Length > 0;
-    public bool IsSyncHealthy => Sync.HasBaseline && Sync.BaselineAncestryValid
-        && Comparison?.Decision == ComparisonDecision.NoTransfer;
+    public bool IsSyncHealthy => Sync.IsInSync;
     public string CloudFileSummary => FileBrowser.CountText(CloudFiles.Count);
     public string LocalFileSummary => FileBrowser.CountText(Local.Files.Count);
     public bool HasCloudNotice => Cloud.Notice.Length > 0;
     public string CloudRevisionLine => Cloud.Revision.Length > 0 ? Cloud.Revision : "";
     public bool HasCloudRevisionLine => CloudRevisionLine.Length > 0;
-    private static string ShortCommit(string commit) => string.IsNullOrEmpty(commit) ? "" : commit[..Math.Min(7, commit.Length)];
     public string DashboardConnectionStatus => GitHub.IsConnected ? "GitHub Connected" : "GitHub Not Connected";
-    public string SyncStatus => Sync.HasBaseline
-        ? !Sync.BaselineAncestryValid ? "Synchronized revision no longer in the remote history"
-        : Comparison?.Decision == ComparisonDecision.NoTransfer ? "In sync at the checked revision"
-        : Comparison is null ? "Last synchronized revision recorded"
-        : "Changes since the last synchronized revision"
-        : Local.Manifest?.IsValid != true || !GitHub.IsConnected || GitHub.SelectedRepository is null || Cloud.Result is null
-            ? "Needs attention"
-        : Cloud.Result.Content == RepositoryContent.Incompatible ? "Needs attention"
-        : Sync.IsAvailable && Sync.BootstrapCase != RepositoryBootstrapCase.None ? Sync.BootstrapCase switch
-        {
-            RepositoryBootstrapCase.UnbornRepository => "Ready to initialize after review",
-            RepositoryBootstrapCase.EmptyTree => "Ready to create the first collection after review",
-            RepositoryBootstrapCase.Unrelated => "Ready to adopt after review",
-            _ => "Not yet synchronized"
-        }
-        : "Not yet synchronized";
-    public CollectionComparison? Comparison => Cloud.Compare(Local.Manifest, GitHub.SelectedRepository);
-    public string ComparisonStatus => Comparison?.Decision switch
-    {
-        ComparisonDecision.NoTransfer => Sync.HasBaseline && Sync.BaselineAncestryValid
-            ? "Local and cloud files match at the checked revision. This device is synchronized at that revision; other devices are not verified."
-            : "Local and cloud files match at the checked revision, but no synchronization history is recorded yet.",
-        ComparisonDecision.InitialUpload => "Local files are ready for an initial upload. Sync All shows exactly what will be published before anything is sent.",
-        ComparisonDecision.InitialDownload => "Cloud files are available for a future initial download. The local folder is empty.",
-        ComparisonDecision.Conflict => "Local and cloud collections differ. Choose Resolve to pull the cloud version (after backing up your local folder) or push your local version to the repository.",
-        ComparisonDecision.Blocked => "Comparison is blocked by invalid or unverified inputs.",
-        _ => Sync.BootstrapCase != RepositoryBootstrapCase.None
-            ? "This repository can be bootstrapped after an explicit review. Nothing is written until you confirm."
-            : "No verified collection comparison is available. Synchronization remains disabled."
-    };
+    public string SyncStatus => Sync.StatusTitle;
+    public string SyncDetail => Sync.StatusDetail;
     public string FolderExplanation => Local.ShowEmpty
-        ? "This folder is empty. Downloading saves will be available when synchronization is added."
-        : "Your files stay here. PD2 Cloud will compare them with the cloud before any future synchronization.";
+        ? "This folder is empty. Sync downloads your saves from the cloud when there are any."
+        : "Your files stay here. Sync keeps them and the cloud copy the same.";
     public string RepositoryName => GitHub.SelectedRepository?.FullName ?? "Choose a repository in Settings → GitHub.";
-    public string RepositorySafety => "Selecting a repository saves the choice and checks its contents without making changes. Sync All only ever publishes a reviewed initial upload into a verified empty managed collection, or explicitly initializes/adopts an unborn, empty-tree or unrelated repository after you review and confirm the exact case. Incompatible PD2 Cloud data stays blocked and your local files are never replaced.";
-    public string SyncActionLabel => Sync.BootstrapCase switch
-    {
-        RepositoryBootstrapCase.UnbornRepository => "Initialize Repository",
-        RepositoryBootstrapCase.EmptyTree => "Create First Collection",
-        RepositoryBootstrapCase.Unrelated => "Review Adoption",
-        _ => "Sync All"
-    };
-
-    // Reviewed resolution of a real local/cloud difference. Pull backs up first; push publishes a reviewed snapshot.
-    public bool ShowResolveAction => Sync.IsAvailable && Sync.CanResolve;
-    public bool CanResolve => !disposed && Sync.CanResolve;
-    public bool CanResolvePull => !disposed && Sync.CanResolvePull;
-    public bool CanResolvePush => !disposed && Sync.CanResolvePush;
-    public string ResolveReason => disposed ? "" : Sync.ResolveReason;
-    public string ResolveSummary => Sync.ResolveSummary;
-    public string ResolveBackupNotice => Sync.ResolveBackupNotice;
-    public string ResolveNotice => Sync.ResolveNotice;
-    public bool HasResolveNotice => Sync.HasResolveNotice;
-    public bool HasResolveResult => Sync.HasResolveResult;
-    public string ResolveResultTitle => Sync.ResolveResultTitle;
-    public string ResolveResultMessage => Sync.ResolveResultMessage;
+    public string RepositorySafety => "Selecting a repository saves the choice and checks its contents without making changes. Sync stores your saves in a .pd2cloud folder in it; any other files in the repository are kept.";
     public bool IsDashboardChecking => IsDashboard && !disposed && (Local.IsBusy || Cloud.IsBusy || GitHub.IsBusy || Sync.IsBusy);
 
-    // Reviewed upload: Sync All stays enabled only for a populated local folder into a verified empty managed collection.
+    // One Sync action: upload, download or set up cloud storage, as the comparison calls for.
     public bool ShowSyncAction => Sync.IsAvailable;
-    public bool CanSyncAll => !disposed && Sync.CanOfferUpload;
-    public string SyncAllReason => disposed ? "" : Sync.OfferBlockedReason;
-    public bool HasSyncAllReason => SyncAllReason.Length > 0;
-    public string SyncNotice => Sync.StatusLine;
-    public bool HasSyncNotice => Sync.HasStatusLine;
-    public bool HasRecoveryEvidence => Sync.HasRecoveryEvidence;
-    public bool CanAssessRecovery => !disposed && IsRecovery && Sync.IsAvailable && Sync.HasRecoveryEvidence && !Sync.IsBusy && GitHub.SelectedRepository is not null;
+    public bool CanSync => !disposed && Sync.CanSync;
+    public string SyncReason => disposed || Sync.CanSync ? "" : Sync.BlockedReason;
+    public bool IsConflictChoiceOpen => Sync.IsConflictChoiceOpen;
+    public string SyncMessage => Sync.Message;
+    public bool HasSyncMessage => Sync.HasMessage;
+    public bool IsSyncMessageError => Sync.IsMessageError;
 
-    public bool BeginResolve()
-    {
-        var started = Sync.BeginResolve();
-        if (started) Navigate(SetupScreen.Resolve);
-        else Notify();
-        return started;
-    }
+    public async Task SyncAsync() => await AfterSyncAsync(await Sync.SyncAsync());
+    public async Task KeepLocalAsync() => await AfterSyncAsync(await Sync.KeepLocalAsync());
+    public async Task KeepCloudAsync() => await AfterSyncAsync(await Sync.KeepCloudAsync());
+    public void CancelConflict() => Sync.CloseConflictChoice();
 
-    public async Task ResolveAsync(ResolveChoice choice)
+    // Re-inspect both sides so the dashboard shows the state actually reached.
+    private async Task AfterSyncAsync(bool transferred)
     {
-        if (disposed || choice == ResolveChoice.None) return;
-        if (choice == ResolveChoice.Pull) await Sync.ResolvePullAsync();
-        else await Sync.ResolvePushAsync();
-        if (disposed) return;
-        // Re-inspect both sides so the dashboard shows the state actually reached, not the old comparison.
+        if (disposed || !transferred) { Notify(); return; }
         await Local.RefreshAsync();
         await CheckCloudAsync();
         await Sync.RefreshStateAsync();
-        // A completed replacement returns to Saves with its result; an error stays here with the notice.
-        if (Sync.HasResolveResult) Dashboard();
-        else Notify();
-    }
-
-    public void CancelResolve()
-    {
-        if (Sync.IsBusy) Sync.Cancel();
-        Dashboard();
-    }
-
-    public void BeginUpload()
-    {
-        if (!Sync.StartReview()) { Notify(); return; }
-        Navigate(SetupScreen.UploadReview);
-    }
-    public async Task ConfirmUploadAsync()
-    {
-        await Sync.ConfirmAsync();
-        if (disposed) return;
-        // A publication may have changed the remote revision and local baseline; refresh both honestly.
-        await Local.RefreshAsync();
-        await CheckCloudAsync();
-        await Sync.RefreshStateAsync();
-        Notify();
-    }
-    public async Task OpenRecoveryAsync()
-    {
-        Navigate(SetupScreen.Recovery);
-        await Sync.RefreshStateAsync();
-        if (disposed || !Sync.HasRecoveryEvidence) { Notify(); return; }
-        await Sync.AssessRecoveryAsync();
-        Notify();
-    }
-    public async Task AssessRecoveryAsync()
-    {
-        if (!CanAssessRecovery) return;
-        await Sync.AssessRecoveryAsync();
+        await Sync.RecordMatchAsync();
         Notify();
     }
 
@@ -280,6 +179,7 @@ public sealed class SetupWorkflowViewModel : INotifyPropertyChanged, IDisposable
             ? SetupScreen.Folder : GitHub.IsConnected ? SetupScreen.Repository : Local.SetupStarted ? SetupScreen.Connect : SetupScreen.Welcome);
         await CheckCloudAsync();
         await Sync.RefreshStateAsync();
+        await Sync.RecordMatchAsync();
     }
 
     public async Task GetStartedAsync()
@@ -290,7 +190,7 @@ public sealed class SetupWorkflowViewModel : INotifyPropertyChanged, IDisposable
     public void OpenSettings(SettingsSection section = SettingsSection.GitHub) { Section = section; Navigate(SetupScreen.Settings); }
     public void OpenLocalFiles() { if (!CanOpenLocalFiles) return; FilesScope = FileScope.Local; Navigate(SetupScreen.Files); }
     public void OpenCloudFiles() { if (!CanOpenCloudFiles) return; FilesScope = FileScope.Cloud; Navigate(SetupScreen.Files); }
-    public void Dashboard() { Sync.CloseReview(); Navigate(SetupScreen.Dashboard); }
+    public void Dashboard() { Sync.CloseConflictChoice(); Navigate(SetupScreen.Dashboard); }
     public void BeginConnection(bool reconnect = false)
     {
         if (IsSettings || Journey != ConnectionJourney.Onboarding)
@@ -339,11 +239,15 @@ public sealed class SetupWorkflowViewModel : INotifyPropertyChanged, IDisposable
     }
     public async Task RefreshAsync()
     {
+        Sync.ClearMessage();
+        Sync.CloseConflictChoice();
         Cloud.Invalidate();
         var checkConnection = !GitHub.IsBusy;
         await Task.WhenAll(Local.RefreshAsync(), GitHub.ReloadAsync());
         if (checkConnection) await CheckCloudAsync();
-        if (!disposed) await Sync.RefreshStateAsync();
+        if (disposed) return;
+        await Sync.RefreshStateAsync();
+        await Sync.RecordMatchAsync();
     }
     public bool CanCheckCloud => !disposed && !GitHub.IsBusy && !Cloud.IsBusy && GitHub.SelectedRepository is not null;
     public Task CheckCloudAsync() => CanCheckCloud && GitHub.SelectedRepository is { } selected
@@ -359,9 +263,6 @@ public sealed class SetupWorkflowViewModel : INotifyPropertyChanged, IDisposable
     }
     public async Task BackAsync()
     {
-        if (IsResolve) { if (Sync.IsBusy) { Sync.Cancel(); return; } Dashboard(); return; }
-        if (IsUploadReview) { if (Sync.IsBusy) { Sync.Cancel(); return; } Dashboard(); return; }
-        if (IsRecovery) { if (Sync.IsBusy) { Sync.Cancel(); return; } Dashboard(); return; }
         if (IsFiles) { Dashboard(); return; }
         if (GitHub.IsBusy) { GitHub.Cancel(); return; }
         if (Journey != ConnectionJourney.Onboarding) { OpenSettings(); return; }

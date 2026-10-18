@@ -5,10 +5,12 @@ namespace PD2Cloud.Local;
 
 public sealed partial class OperationPreparationStore
 {
+    private const int KeptReplacementBackups = 5;
+
     /// <summary>
     /// Runs a source-replacement callback after writing a complete, independently verified backup of the
     /// current collection. The same storage gate and filesystem lease used by preparation exclude interleaving.
-    /// The backup is retained even when the callback fails or is cancelled.
+    /// The backup is retained even when the callback fails or is cancelled; only the newest five are kept.
     /// </summary>
     internal async Task<T> CoordinateReplacementAsync<T>(string sourceRoot,
         Func<ReplacementBackup, CancellationToken, Task<T>> replace, CancellationToken token = default)
@@ -22,9 +24,7 @@ public sealed partial class OperationPreparationStore
             return await Task.Run(async () =>
             {
                 using var lease = AcquireLease();
-                // Unresolved publication/preparation evidence must be reviewed before local files are replaced.
-                if (Directory.EnumerateFileSystemEntries(directory).Any(p => Path.GetFileName(p) != "operations.lock"))
-                    throw new RecoveryBlockedException("Existing recovery evidence requires review before replacing local files.");
+                DiscardOperations();
                 var original = await scanner.ScanAsync(sourceRoot, token).ConfigureAwait(false);
                 RequireValid(original);
                 if (original.Files.Count > MaxFiles)
@@ -76,10 +76,28 @@ public sealed partial class OperationPreparationStore
 
                 var backup = new ReplacementBackup(id, sourceRoot, backupDirectory,
                     Array.AsReadOnly(original.Files.ToArray()), original.CollectionFingerprint!, createdAt);
-                return await replace(backup, token).ConfigureAwait(false);
+                var result = await replace(backup, token).ConfigureAwait(false);
+                PruneReplacementBackups();
+                return result;
             }, token).ConfigureAwait(false);
         }
         finally { gate.Release(); }
+    }
+
+    // Keeps only the newest backups. Runs after a successful replacement, so the backup just written always survives.
+    private void PruneReplacementBackups()
+    {
+        var root = Path.Combine(applicationDirectory, "replacements");
+        var stale = new DirectoryInfo(root).EnumerateDirectories()
+            .Where(d => d.LinkTarget is null)
+            // backup.json is written once per backup; a backup without it never reached a replacement.
+            .OrderByDescending(d => File.GetLastWriteTimeUtc(Path.Combine(d.FullName, "backup.json")))
+            .Skip(KeptReplacementBackups);
+        foreach (var backup in stale)
+        {
+            try { backup.Delete(recursive: true); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        }
     }
 
     // Read-only inspection used by replacement callers after writing files. It retains the source/storage rule.

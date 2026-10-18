@@ -28,16 +28,16 @@ public sealed class CloudCollectionReader(GitHubConnection connection)
             if (snapshot.Commit is null)
             {
                 Require(snapshot.Tree is null && snapshot.Entries.Count == 0 && snapshot.Blobs.Count == 0);
-                return Result(RepositoryContent.EmptyRepository, "Empty repository. Its first PD2 Cloud collection can be created by an explicit, reviewed initialization. No files were uploaded.");
+                return Result(RepositoryContent.EmptyRepository, "Cloud storage is not set up yet. Sync sets it up and uploads your saves.");
             }
             Require(IsId(snapshot.Commit) && IsId(snapshot.Tree));
             VerifyTrees(snapshot, ct);
             var entries = snapshot.Entries;
             if (entries.Count == 0)
-                return Result(RepositoryContent.EmptyRepository, "The selected revision has an empty tree. No managed collection exists yet. Its first PD2 Cloud collection can be created by an explicit, reviewed initialization.");
+                return Result(RepositoryContent.EmptyRepository, "Cloud storage is not set up yet. Sync sets it up and uploads your saves.");
             var owned = entries.Where(e => RelativePaths.CollisionKey(e.Path.Split('/')[0]) == RelativePaths.CollisionKey(CloudStorage.Root)).ToArray();
             if (owned.Length == 0)
-                return Result(RepositoryContent.Unrelated, "This repository contains unrelated files and no PD2 Cloud collection. Adopting it requires an explicit confirmation; nothing has been initialized or overwritten.");
+                return Result(RepositoryContent.Unrelated, "This repository has other files but no saves yet. Sync adds your saves alongside them; existing files are kept.");
 
             var paths = new Dictionary<string, string>(StringComparer.Ordinal);
             foreach (var item in owned)
@@ -82,7 +82,7 @@ public sealed class CloudCollectionReader(GitHubConnection connection)
             var manifest = new CollectionManifest(1, "remote", files.AsReadOnly(), root.GetProperty("CollectionFingerprint").GetString(), DateTimeOffset.UtcNow, true, []);
             var remote = new RemoteCollection(snapshot.Repository.Id.ToString(CultureInfo.InvariantCulture), snapshot.Repository.DefaultBranch, snapshot.Commit, manifest, RemoteVerification.Verified);
             // Reuse Core's canonical inventory, hash, collision and fingerprint validation.
-            Require(CollectionComparer.Compare(new(remote.RepositoryIdentity, remote.Branch, manifest.RootPath), manifest, remote).Decision == ComparisonDecision.NoTransfer);
+            Require(CollectionInventory.IsValidManifest(manifest));
             var actual = owned.Where(e => e.Type == "blob" && e.Path.StartsWith(CloudStorage.FilesPath + "/", StringComparison.Ordinal)).ToDictionary(e => e.Path, StringComparer.Ordinal);
             Require(actual.Count == files.Count);
             foreach (var file in files)
@@ -92,11 +92,11 @@ public sealed class CloudCollectionReader(GitHubConnection connection)
                 var item = actual[CloudStorage.FilesPath + "/" + file.RelativePath];
                 Require(item.Size == file.SizeBytes && Convert.ToHexStringLower(SHA256.HashData(Bytes(item, CloudStorage.MaxFileBytes))) == file.Sha256);
             }
-            return Result(RepositoryContent.ManagedCollection, $"Verified PD2 Cloud collection: {files.Count} {(files.Count == 1 ? "file" : "files")}. Comparison is advisory; no synchronization has occurred.", remote);
+            return Result(RepositoryContent.ManagedCollection, $"Verified PD2 Cloud collection: {files.Count} {(files.Count == 1 ? "file" : "files")}.", remote);
         }
         catch (Exception ex) when (ex is InvalidDataException or JsonException or InvalidOperationException or ArgumentException or KeyNotFoundException or FormatException or OverflowException)
         {
-            return Result(RepositoryContent.Incompatible, "The PD2 Cloud namespace is incompatible, unsafe or incomplete. Comparison is blocked. Repository contents were left untouched.");
+            return Result(RepositoryContent.Incompatible, "This repository contains PD2 Cloud data this version cannot read. Nothing was changed.");
         }
     }
 

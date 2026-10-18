@@ -1,44 +1,31 @@
 # Pure collection comparison
 
-Current task-8 extension: [safe upload](safe-upload.md) provides a coordinated initial-upload/publication-recovery API with repository/branch/pinned-head binding and durable candidate records. The desktop now offers an explicit reviewed upload (Sync All) only for a populated local folder into an empty verified managed collection with no existing baseline or retained evidence, plus a read-only Upload Recovery screen. Publication never establishes synchronization success and no baseline is fabricated. Earlier task-specific transfer limitations below describe their original delivery boundary. Live GitHub and native acceptance remain open.
-
-Task 4 implementation contract, 2026-10-15. `CollectionComparer.Compare` in Core consumes a `CollectionPairing`, a local `CollectionManifest`, a `RemoteCollection` and an optional supplied `LocalSyncState`. It returns a `CollectionComparison`: decision, typed blocking reason and sorted baseline paths missing on each side. It has no filesystem, GitHub, authentication, persistence or desktop dependency.
+`SyncPlanner.Plan` in Core compares the local file list, the verified cloud file list and the files recorded at the last successful sync (or `null` when there is no record). It returns a `SyncAction`: InSync, Upload, Download or Conflict. It has no filesystem, GitHub, authentication, persistence or desktop dependency. It replaced the earlier `CollectionComparer`, which also validated pairings and baseline ancestry and produced blocking reasons and missing-file reviews. See [sync](sync.md) for how the dashboard uses the result.
 
 ## Inputs and trust boundary
 
-The pairing identifies repository, branch and selected local root. Identifiers are compared ordinally, without path normalization or filesystem queries. Callers must supply the same canonical root spelling used by inspection and the accepted baseline; a spelling change conservatively blocks reuse. Local inspection must match that root. Remote manifest roots and inspection timestamps do not participate in equality.
+The planner trusts its caller. `SyncViewModel` plans only with a currently valid local inspection and a cloud result from [verified cloud reads](cloud-reads.md) for the selected repository that is a managed collection. Unavailable, unverified, incompatible or offline cloud state never reaches the planner. Empty and unrelated repositories are handled before planning (Sync sets up cloud storage; see [repository bootstrap](repository-bootstrap.md)).
 
-`RemoteVerification.Unavailable` and `Unverified` always block, even with a cached or empty manifest. `Verified` requires a nonempty pinned commit and a complete valid manifest for the selected repository/branch. This is an assertion by the caller, not verification performed by the comparer. Task 6 now verifies pinned manifest/tree/blob consistency, repository identity, freshness and resource limits before asserting it; see [cloud reads](cloud-reads.md). Missing branches and network failures cannot supply a verified empty collection.
+The last-sync record is used only when its repository, branch and canonical local root match the current selection; otherwise planning proceeds as if there were no record. There is no ancestry or history check: the record is simply the file list both sides held at the last sync.
 
-A supplied baseline must have schema 1, a nonempty accepted commit, matching repository/branch/local root and a valid file inventory. A different remote commit requires `BaselineHistory.ContainsBaseline`, based on verified ancestry relative to that exact accepted commit. `Unknown` blocks; `Rewritten` blocks even if inventories match. An identical accepted/current commit needs no additional ancestry evidence. No baseline is inferred from a successful inspection or equality.
+Inventory validation lives in `CollectionInventory.IsValidFiles` and `IsValidManifest` (canonical safe paths, nonnegative sizes, lowercase SHA-256 values, no colliding paths or file/directory overlaps, matching recomputed fingerprint). The cloud reader and local preparation/download use it; the planner does not re-validate.
 
-Inventory checks require schema 1, stability, no issues, a complete file list and a matching recomputed collection fingerprint. File checks require canonical safe paths, nonnegative sizes, lowercase 64-digit SHA-256 values, no duplicate/colliding paths or implied directories, and no file/directory overlaps. Baseline files receive the same file checks. These checks cannot prove the provenance or completeness of a caller's data or recover omitted empty-directory diagnostics; the scanner/remote verifier must provide that evidence. Inputs must remain unchanged during the synchronous call.
+## Decisions
 
-## Decision order
+Equality compares paths, hashes and sizes after ordinal path sorting, so input order is ignored.
 
-Validation blocks precede all inventory decisions. Missing baseline paths precede equality and directional decisions. Within each valid inventory, input ordering is ignored; equality compares canonical paths, hashes and sizes. Collection fingerprints exclude sizes by schema design, so a matching fingerprint alone is insufficient for equality.
-
-| Baseline | Local/remote condition | Result |
+| Last-sync record | Condition | Result |
 |---|---|---|
-| Present | Any baseline path missing on either side, including identical removals or renames | MissingFileReview, with per-side missing paths |
-| Either | Complete local and remote inventories equal, including both empty | NoTransfer |
-| Absent | Local populated, verified remote empty | InitialUpload |
-| Absent | Local empty, verified remote populated | InitialDownload |
+| Either | Local and cloud files equal, including both empty | InSync |
+| Absent | Local empty, cloud populated | Download |
+| Absent | Cloud empty, local populated | Upload |
 | Absent | Both populated and different | Conflict |
-| Present | Only local differs | Upload |
-| Present | Only remote differs | Download |
-| Present | Both differ and are unequal | Conflict |
+| Present | Only local differs from the record | Upload |
+| Present | Only cloud differs from the record | Download |
+| Present | Both differ from the record | Conflict |
 
-Different-file edits on different sides remain a whole-collection conflict. Additions on only one side can produce a directional decision; deletion of any previously synchronized file requires review. An empty successful baseline is valid and uses the normal one-sided rules rather than initial-sync decisions.
+Deletions and renames are ordinary changes. Different-file edits on different sides remain a whole-collection conflict; there is no per-file merge.
 
-## Scope and verification
+## Scope
 
-Results are advisory observations, never permission to transfer or advance a baseline. There is no automatic merge/deletion, baseline persistence, background synchronization or fabricated successful synchronization. The explicit **Resolve** flow now offers complete-side pull or replacement push for a real difference; it re-verifies the pinned revision and backs up before replacing. Per-file merge, removal/archival policy and automatic stale-review handling remain open. Future review choices must be invalidated if either side changes. See [resolve differences](resolve-differences.md). The desktop invokes advisory comparison for a current valid local inventory and a task-6 verified managed remote collection. Comparison itself remains baseline-free; the dashboard separately combines it with a recorded baseline to report in-sync status. Empty uninitialized repositories, unrelated content, incompatible data and unavailable reads supply no fabricated inventory. Connection/selection never fabricates a baseline. See [GitHub connection](github-connection.md).
-
-On macOS, 52 added pure cases cover the decision table, matching/disjoint changes, missing paths, invalid manifests/baselines, identity mismatch, unknown remote state and history checks. All 97 project tests passed; standard `mise run build` passed with zero warnings/errors and `mise run format:check` passed. Existing scanner fingerprint vectors still pass after sharing the encoding in Core. No UI changes were required. Native Windows/Linux and hosted CI results have not been checked for this task.
-
-The [setup UX follow-up](github-setup-ux.md) keeps these boundaries: changing repositories clears the displayed verified selection before revalidation, and no comparison result or synchronization status is reused for a new pairing. The UI reports Not yet synchronized or Needs attention and shows task-6 advisory decisions only with verified cloud inputs. Matching files alone never establish synchronization success; the dashboard shows in sync only when a valid recorded baseline is present and the checked inventories match. Metadata/account/selection changes cancel and invalidate cloud evidence.
-
-## Shared validation and task 7
-
-Inventory/manifest validation now lives in `CollectionInventory.IsValidFiles` and `IsValidManifest`, shared by the comparer and [local preparation/recovery](backups-recovery.md). The comparison decision order and results are unchanged. Task 7 produces retained local evidence, not remote verification, ancestry evidence or a successful baseline; no preparation record can authorize a comparison-driven write.
+The planner only chooses an action. Every transfer re-checks its own preconditions: an upload publishes only on top of the pinned revision that was compared ([safe upload](safe-upload.md)), and a download re-verifies the pinned revision and backs up the local folder first ([backups and recovery](backups-recovery.md)). The dashboard reports In sync from the planner's InSync result; when both sides already match but the record is missing or stale, the next check (Refresh, startup or the re-check after a sync attempt) records the sync without transferring anything.

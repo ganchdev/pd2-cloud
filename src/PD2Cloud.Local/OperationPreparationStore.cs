@@ -8,7 +8,7 @@ namespace PD2Cloud.Local;
 
 /// <summary>
 /// Local-only safety gate. Captures and backs up opaque files without changing the source.
-/// No installation, rollback, transfer, cleanup or successful-sync API is provided.
+/// Each operation's evidence lives only for the duration of one sync.
 /// </summary>
 public sealed partial class OperationPreparationStore
 {
@@ -50,8 +50,7 @@ public sealed partial class OperationPreparationStore
             return await Task.Run(async () =>
             {
                 using var lease = AcquireLease();
-                if (Directory.EnumerateFileSystemEntries(directory).Any(p => Path.GetFileName(p) != "operations.lock"))
-                    throw new RecoveryBlockedException("Existing recovery evidence requires review before preparing another operation.");
+                DiscardOperations();
                 var original = await scanner.ScanAsync(sourceRoot, token);
                 RequireValid(original);
                 if (original.Files.Count > MaxFiles) throw new RecoveryBlockedException("Preparation supports at most 1,000 files; nothing was excluded or changed.");
@@ -160,7 +159,7 @@ public sealed partial class OperationPreparationStore
                         var (inventory, journal) = ReadJournal(entry, name, token);
                         if (Directory.Exists(Path.Combine(entry, "upload")))
                         {
-                            results.Add(new(name, RecoveryStatus.Blocked, "Upload evidence requires CollectionUploader publication recovery assessment. Retain all evidence; do not repeat preparation or publication."));
+                            results.Add(new(name, RecoveryStatus.Blocked, "Upload evidence from an interrupted sync. The next sync discards it and checks the repository again."));
                             continue;
                         }
                         foreach (var child in Directory.EnumerateFileSystemEntries(entry))
@@ -176,7 +175,7 @@ public sealed partial class OperationPreparationStore
                             VerifySnapshot(Path.Combine(entry, "capture"), inventory.Files, token);
                         if (journal.Phase != PreparationPhase.Prepared)
                         {
-                            results.Add(new(name, RecoveryStatus.Interrupted, "Preparation was interrupted. Retain all evidence for review; the source was never replaced."));
+                            results.Add(new(name, RecoveryStatus.Interrupted, "Preparation was interrupted. The source was never replaced; the next sync discards this evidence."));
                             continue;
                         }
                         VerifySnapshot(Path.Combine(entry, "backup"), inventory.Files, token);
@@ -198,6 +197,19 @@ public sealed partial class OperationPreparationStore
             }, token);
         }
         finally { gate.Release(); }
+    }
+
+    // Operation evidence is scratch space for one sync. Anything left behind by an earlier crash is discarded.
+    private void DiscardOperations()
+    {
+        foreach (var entry in Directory.EnumerateFileSystemEntries(directory).Where(p => Path.GetFileName(p) != "operations.lock"))
+            DeleteEntry(entry);
+    }
+
+    private static void DeleteEntry(string path)
+    {
+        if (Directory.Exists(path) && new DirectoryInfo(path).LinkTarget is null) Directory.Delete(path, recursive: true);
+        else File.Delete(path);
     }
 
     private FileStream AcquireLease()
@@ -315,7 +327,7 @@ public sealed partial class OperationPreparationStore
     {
         var manifest = await scanner.ScanAsync(path, token);
         RequireValid(manifest);
-        if (!Equal(manifest.Files, expected)) throw new RecoveryBlockedException("Source changed; preserve the captured evidence and review.");
+        if (!Equal(manifest.Files, expected)) throw new RecoveryBlockedException("Your save files changed while the upload was being prepared. Sync again.");
     }
 
     private static void RequireValid(CollectionManifest manifest)

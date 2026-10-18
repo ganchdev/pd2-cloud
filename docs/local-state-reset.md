@@ -1,6 +1,6 @@
 # Resetting local application state
 
-PD2 Cloud keeps its local state in two places: an application-data directory and one native credential entry. Starting fresh means removing both. Doing only one leaves either stale setup/baseline data or a saved GitHub authorization behind.
+PD2 Cloud keeps its local state in two places: an application-data directory and one native credential entry. Starting fresh means removing both. Doing only one leaves either stale setup/sync data or a saved GitHub authorization behind.
 
 Resetting never modifies the selected save folder or the remote repository. It also does not revoke the GitHub App authorization on GitHub's side; do that separately in GitHub settings if desired.
 
@@ -15,9 +15,10 @@ The application-data directory is `Environment.SpecialFolder.LocalApplicationDat
 It contains:
 
 - `settings.json` — selected save folder, setup started/completed progress
-- `local-sync-state.json` — pinned remote revision, verified collection fingerprint and local/remote pairing from a successful publication
+- `local-sync-state.json` — the last sync record: repository, branch, local folder, cloud revision and the files both sides held at the last successful upload or download
 - `instance.lock` — an empty file held exclusively while one desktop instance runs; it prevents a second launch from racing recovery storage
-- `recovery/` — operation journals, `operations.lock` and retained capture backups, which are copies of source save files created during preparation/recovery
+- `recovery/` — `operations.lock` plus scratch copies of the save files for the upload in progress; emptied after every upload and discarded by the next sync if a crash left anything behind
+- `replacements/` — complete backups of the save folder taken before each download (the newest five are kept)
 
 The GitHub credential envelope lives only in macOS Keychain, Windows Credential Manager or Linux Secret Service, never in these files (see [GitHub connection](github-connection.md)). Its native entry key is `PD2Cloud.GitHub.` plus the first 24 uppercase hex digits of SHA-256 over the public client ID; the macOS/Windows account label is `GitHub`.
 
@@ -50,10 +51,10 @@ Instead of deleting the native entry by hand, launch the app and use **Settings 
 
 ## Cautions
 
-- **Recovery evidence is destructive to discard.** `recovery/` contains the retained backup and journals needed by the read-only **Review Upload Recovery** screen. If an upload was interrupted, lost or concurrent, finish recovery before deleting the directory. Deleting it permanently removes that evidence.
-- Deleting `local-sync-state.json` forgets the verified baseline and pairing. The next launch starts from uninitialized setup and performs no implicit baseline fabrication or adoption; a later publication requires the normal explicit review.
+- **Download backups are destructive to discard.** `replacements/` holds copies of your save folder from before each download. Copy out anything you may still need before deleting it.
+- Deleting `local-sync-state.json` forgets the last sync. If local and cloud files already match, the next check records the sync again; otherwise, when both sides have files and differ, Sync treats them as a conflict and asks which copy to keep.
 - Do not delete only `settings.json` to "restart setup": a leftover `local-sync-state.json` can still describe a prior pairing. Use the full reset above.
 
 ## Expected result
 
-Launching a downloaded executable after a complete reset opens **Get Started** with no saved account, repository, folder, setup progress, baseline or recovery evidence. Optional GitHub App configuration is unchanged: release artifacts embed the public Client ID and need no local configuration (see the README's GitHub connection section).
+Launching a downloaded executable after a complete reset opens **Get Started** with no saved account, repository, folder, setup progress, sync record or backups. Optional GitHub App configuration is unchanged: release artifacts embed the public Client ID and need no local configuration (see the README's GitHub connection section).

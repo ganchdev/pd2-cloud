@@ -5,7 +5,7 @@ using PD2Cloud.Local;
 
 namespace PD2Cloud.Remote;
 
-/// <summary>Explicit reviewed replacement of the local collection with one verified pinned cloud revision.</summary>
+/// <summary>Replaces the local collection with one verified pinned cloud revision.</summary>
 public sealed record PullRequest(string SourceRoot, RepositoryChoice Repository, string PinnedCommit,
     string CollectionFingerprint);
 
@@ -14,7 +14,7 @@ public sealed record PullResult(string Commit, string BackupDirectory, int FileC
 
 /// <summary>
 /// Verifies the pinned managed collection again, writes a complete retained backup of the current local
-/// collection, then installs the verified cloud bytes. The backup is never deleted by this class.
+/// collection, then installs the verified cloud bytes. Only the newest backups are kept.
 /// </summary>
 public sealed class CollectionPuller(OperationPreparationStore preparations, GitHubConnection connection,
     LocalSyncStateStore syncStateStore)
@@ -23,11 +23,11 @@ public sealed class CollectionPuller(OperationPreparationStore preparations, Git
     {
         if (string.IsNullOrWhiteSpace(request.PinnedCommit) || request.PinnedCommit.Length != 40
             || request.PinnedCommit.Any(c => !char.IsAsciiHexDigitLower(c)))
-            throw new RecoveryBlockedException("The reviewed cloud revision is invalid. Refresh and review again.");
+            throw new RecoveryBlockedException("The cloud revision is invalid. Refresh and sync again.");
         if (string.IsNullOrWhiteSpace(request.CollectionFingerprint) || request.CollectionFingerprint.Length != 64)
-            throw new RecoveryBlockedException("The reviewed cloud collection fingerprint is invalid. Refresh and review again.");
+            throw new RecoveryBlockedException("The cloud saves are invalid. Refresh and sync again.");
         if (!Path.IsPathFullyQualified(request.SourceRoot))
-            throw new RecoveryBlockedException("Select an absolute local folder before pulling.");
+            throw new RecoveryBlockedException("Select an absolute local folder before downloading.");
         var sourceRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(request.SourceRoot));
 
         // Re-read and re-verify the exact reviewed revision; never install a cached inventory or stale bytes.
@@ -35,10 +35,10 @@ public sealed class CollectionPuller(OperationPreparationStore preparations, Git
         var verified = CloudCollectionReader.Verify(snapshot, ct);
         Require(verified.Repository == request.Repository && verified.Commit == request.PinnedCommit
             && verified.Content == RepositoryContent.ManagedCollection && verified.Collection?.Manifest is not null,
-            "The cloud revision changed. Refresh and review the resolution again; no local file was replaced.");
+            "The cloud saves changed. Refresh and sync again; no local file was replaced.");
         var manifest = verified.Collection!.Manifest!;
         Require(manifest.CollectionFingerprint == request.CollectionFingerprint,
-            "The cloud collection changed. Refresh and review the resolution again; no local file was replaced.");
+            "The cloud saves changed. Refresh and sync again; no local file was replaced.");
         var payloads = Payloads(snapshot, manifest.Files);
 
         return await preparations.CoordinateReplacementAsync(sourceRoot, async (backup, token) =>
@@ -58,7 +58,7 @@ public sealed class CollectionPuller(OperationPreparationStore preparations, Git
                     ? $" Your previous local files were restored from {backup.BackupDirectory}."
                     : $" Automatic restore could not complete. Your complete backup is at {backup.BackupDirectory}.";
                 if (error is OperationCanceledException) throw;
-                throw new RecoveryBlockedException("Pulling the cloud collection did not finish." + suffix);
+                throw new RecoveryBlockedException("Downloading the cloud saves did not finish." + suffix);
             }
 
             var recorded = true;
@@ -88,10 +88,10 @@ public sealed class CollectionPuller(OperationPreparationStore preparations, Git
             var path = CloudStorage.FilesPath + "/" + file.RelativePath;
             if (!entries.TryGetValue(path, out var entry) || entry.Type != "blob"
                 || !snapshot.Blobs.TryGetValue(entry.Sha, out var bytes))
-                throw new RecoveryBlockedException("The verified cloud payload changed. Refresh and review the resolution again.");
+                throw new RecoveryBlockedException("The cloud saves changed. Refresh and sync again.");
             Require(bytes.LongLength == file.SizeBytes
                 && Convert.ToHexStringLower(SHA256.HashData(bytes)) == file.Sha256,
-                "The verified cloud payload changed. Refresh and review the resolution again.");
+                "The cloud saves changed. Refresh and sync again.");
             result.Add(file.RelativePath, bytes);
         }
         return result;

@@ -10,8 +10,8 @@ using Xunit;
 
 namespace PD2Cloud.Tests;
 
-// Exercises the desktop reviewed-upload and recovery journey against the real coordinated publication APIs
-// and the shared fake GitHub server. No live account or real save data is used.
+// Exercises the desktop Sync journey against the real coordinated upload/download APIs and the shared fake
+// GitHub server. No live account or real save data is used.
 public sealed class SyncWorkflowTests : IDisposable
 {
     private static readonly RepositoryChoice Repository = new(1, "player/saves", "main");
@@ -43,267 +43,234 @@ public sealed class SyncWorkflowTests : IDisposable
     private static GitHubConnection Connection(CollectionUploadTests.Server server, Credentials? credentials = null) =>
         new(new GitHubApi(new HttpClient(server), "client"), credentials ?? new Credentials(null));
 
-    private async Task<SetupWorkflowViewModel> CreateAsync(CollectionUploadTests.Server server)
+    private Task<SetupWorkflowViewModel> CreateAsync(CollectionUploadTests.Server server) => CreateAsync(server, "");
+
+    // Each "PC" has its own save folder, preferences and application data; they share only the repository.
+    private async Task<SetupWorkflowViewModel> CreateAsync(CollectionUploadTests.Server server, string pc)
     {
-        var settings = new FolderSettingsStore(Prefs);
-        await settings.SaveFolderAsync(Source);
+        var source = Source + pc;
+        Directory.CreateDirectory(source);
+        var settings = new FolderSettingsStore(Prefs + pc);
+        await settings.SaveFolderAsync(source);
         await settings.SaveSetupCompletedAsync();
         var connection = Connection(server);
         var github = new GitHubConnectionViewModel(connection);
-        var local = new MainWindowViewModel(new CollectionScanner(), new Picker(Source), settings, github);
-        return new SetupWorkflowViewModel(local, new SyncOperations(connection, App));
+        var local = new MainWindowViewModel(new CollectionScanner(), new Picker(source), settings, github);
+        return new SetupWorkflowViewModel(local, new SyncOperations(connection, App + pc));
     }
 
     private string SyncStatePath => Path.Combine(App, "local-sync-state.json");
+    private static int Patches(CollectionUploadTests.Server server) => server.Writes.Count(p => p.StartsWith("PATCH", StringComparison.Ordinal));
+    private static string[] Evidence(string app) => Directory.Exists(Path.Combine(app, "recovery"))
+        ? Directory.EnumerateFileSystemEntries(Path.Combine(app, "recovery")).Select(p => Path.GetFileName(p)).Where(n => n != "operations.lock").ToArray()
+        : [];
+    private static Dictionary<string, string> Contents(string folder) => Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories)
+        .ToDictionary(f => Path.GetRelativePath(folder, f), f => Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(f))));
 
-    [Fact]
-    public async Task ReviewedUploadPublishesExactlyWhatWasReviewedAndNeverClaimsSynchronization()
+    [Theory]
+    [InlineData("unborn")]
+    [InlineData("empty-tree")]
+    [InlineData("unrelated")]
+    [InlineData("managed")]
+    public async Task FirstSyncSetsUpCloudStorageAndUploads(string classification)
     {
-        Assert.False(File.Exists(SyncStatePath));
-        var server = new CollectionUploadTests.Server();
+        var server = new CollectionUploadTests.Server(classification);
+        var unrelated = server.Head is null ? [] : server.Expand(server.Commits[server.Head].Tree)
+            .Where(e => !e.Path.StartsWith(CloudStorage.Root, StringComparison.Ordinal)).OrderBy(e => e.Path, StringComparer.Ordinal).ToArray();
         using var workflow = await CreateAsync(server);
         await workflow.InitializeAsync();
 
         Assert.True(workflow.IsDashboard);
-        Assert.True(workflow.ShowSyncAction);
-        Assert.True(workflow.CanSyncAll);
-        Assert.DoesNotContain("Synced", workflow.SyncNotice, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(classification == "managed" ? SyncState.Upload : SyncState.Initialize, workflow.Sync.State);
+        Assert.Equal("Unsynced", workflow.SyncStatus);
+        Assert.True(workflow.CanSync);
+        Assert.Empty(server.Writes);
 
-        workflow.BeginUpload();
-        Assert.True(workflow.IsUploadReview);
-        Assert.Equal(Repository.FullName, workflow.Sync.ReviewRepository);
-        Assert.Equal(server.Head, workflow.Sync.ReviewCommit);
-        Assert.Equal(2, workflow.Sync.ReviewFiles.Count);
-        Assert.True(workflow.Sync.CanConfirm);
-
-        await workflow.ConfirmUploadAsync();
-        Assert.Equal(SyncOutcome.Uploaded, workflow.Sync.Outcome);
-        Assert.Contains("Published revision", workflow.Sync.ResultMessage);
-        Assert.DoesNotContain("Synced", workflow.Sync.ResultMessage, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("not a verified two-device synchronization", workflow.Sync.ResultMessage);
-        Assert.Equal(workflow.Sync.ResultCommit, server.Head);
-        Assert.NotEqual(ParentCommit, server.Head);
-
-        // Source bytes are preserved and a baseline is written only after successful publication.
-        Assert.Equal(SourceBytes, await File.ReadAllBytesAsync(Path.Combine(Source, "nested", "save.any")));
+        await workflow.SyncAsync();
+        Assert.False(workflow.IsSyncMessageError);
+        Assert.Contains("Uploaded 2 files", workflow.SyncMessage);
+        Assert.Equal(SyncState.InSync, workflow.Sync.State);
+        Assert.Equal("In sync", workflow.SyncStatus);
+        Assert.True(workflow.IsSyncHealthy);
+        Assert.False(workflow.CanSync);
+        Assert.Contains("Last synced", workflow.BaselineLine);
+        Assert.Equal(1, Patches(server));
         Assert.True(File.Exists(SyncStatePath));
-        var (state, notice) = await new LocalSyncStateStore(App).LoadAsync();
-        Assert.NotNull(state);
-        Assert.Null(notice);
-        Assert.Equal(server.Head, state!.LastSynchronizedCommit);
-
-        // Publication evidence is retained for review and no further upload is offered.
-        Assert.True(workflow.Sync.HasRecoveryEvidence);
-        Assert.False(workflow.CanSyncAll);
-        Assert.Single(server.Writes, p => p.StartsWith("PATCH", StringComparison.Ordinal));
-    }
-
-    [Fact]
-    public async Task StaleReviewIsRejectedWithoutUploadingAnything()
-    {
-        var server = new CollectionUploadTests.Server();
-        using var workflow = await CreateAsync(server);
-        await workflow.InitializeAsync();
-        workflow.BeginUpload();
-        Assert.True(workflow.Sync.CanConfirm);
-
-        // The reviewed local snapshot changes underneath the open review.
-        await File.WriteAllTextAsync(Path.Combine(Source, "new.bin"), "edited");
-        await workflow.Local.RefreshAsync();
-        Assert.False(workflow.Sync.CanConfirm);
-
-        await workflow.ConfirmUploadAsync();
-        Assert.True(workflow.Sync.HasReviewNotice);
-        Assert.Empty(server.Writes);
-        Assert.False(File.Exists(SyncStatePath));
-    }
-
-    [Fact]
-    public async Task UnverifiedBaselineAncestryBlocksTheUploadOffer()
-    {
-        // A saved baseline whose commit is not part of the remote history must never be trusted.
-        var file = new FileEntry(".hidden", 0, Convert.ToHexStringLower(SHA256.HashData([])));
-        await new LocalSyncStateStore(App).SaveSyncStateAsync(new LocalSyncState(1, Repository.FullName, Repository.DefaultBranch,
-            new string('f', 40), Source, [file], DateTimeOffset.UtcNow, "fp"));
-        var server = new CollectionUploadTests.Server();
-        using var workflow = await CreateAsync(server);
-        await workflow.InitializeAsync();
-
-        Assert.True(workflow.Sync.HasBaseline);
-        Assert.False(workflow.Sync.BaselineAncestryValid);
-        Assert.False(workflow.CanSyncAll);
-        Assert.Contains("no longer part of the remote history", workflow.SyncNotice);
-        workflow.BeginUpload();
-        Assert.False(workflow.IsUploadReview);
-        Assert.Empty(server.Writes);
-    }
-
-    [Fact]
-    public async Task ValidAncestorBaselineDoesNotOfferASecondUpload()
-    {
-        var server = new CollectionUploadTests.Server();
-        var operations = new SyncOperations(Connection(server), App);
-        var prepared = await operations.PrepareAsync(Source, default);
-        var published = await operations.UploadAsync(new UploadRequest(prepared.OperationId, prepared.SourceRoot, prepared.CollectionFingerprint, Repository, server.Head!), default);
-        Assert.Equal(UploadStatus.Published, published.Status);
-        server.Head = published.CandidateCommit;
-
-        using var workflow = await CreateAsync(server);
-        await workflow.InitializeAsync();
-        Assert.True(workflow.Sync.HasBaseline);
-        Assert.True(workflow.Sync.BaselineAncestryValid);
-        Assert.False(workflow.CanSyncAll);
-        Assert.Contains("Additional uploads are not available", workflow.Sync.OfferBlockedReason);
-        Assert.DoesNotContain("Synced", workflow.SyncNotice, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public async Task RecoveryScreenAssessesLostResponseWithoutReplayingOrWritingABaseline()
-    {
-        var server = new CollectionUploadTests.Server { LostResponse = true };
-        var operations = new SyncOperations(Connection(server), App);
-        var prepared = await operations.PrepareAsync(Source, default);
-        await Assert.ThrowsAnyAsync<Exception>(() => operations.UploadAsync(new UploadRequest(prepared.OperationId, prepared.SourceRoot, prepared.CollectionFingerprint, Repository, server.Head!), default));
-        Assert.False(File.Exists(SyncStatePath));
-
-        var writes = server.Writes.Count;
-        using var workflow = await CreateAsync(server);
-        await workflow.InitializeAsync();
-        Assert.True(workflow.Sync.HasRecoveryEvidence);
-        Assert.False(workflow.CanSyncAll);
-
-        await workflow.OpenRecoveryAsync();
-        Assert.True(workflow.IsRecovery);
-        Assert.Equal(UploadStatus.Published, workflow.Sync.RecoveryStatus);
-        Assert.Contains("remote publication evidence only", workflow.Sync.RecoveryMessage);
-        Assert.False(File.Exists(SyncStatePath));
-
-        // Re-checking is read-only and idempotent.
-        await workflow.AssessRecoveryAsync();
-        Assert.Equal(UploadStatus.Published, workflow.Sync.RecoveryStatus);
-        Assert.Equal(writes, server.Writes.Count);
-
-        // The reviewed source is never replaced.
+        Assert.Empty(Evidence(App));
         Assert.Equal(SourceBytes, await File.ReadAllBytesAsync(Path.Combine(Source, "nested", "save.any")));
+        var after = server.Expand(server.Commits[server.Head!].Tree);
+        Assert.Equal(unrelated, after.Where(e => !e.Path.StartsWith(CloudStorage.Root, StringComparison.Ordinal)).OrderBy(e => e.Path, StringComparer.Ordinal));
     }
 
     [Fact]
-    public async Task RecoveryCannotBeAssessedWithoutTheTargetRepositorySelected()
-    {
-        var server = new CollectionUploadTests.Server { LostResponse = true };
-        var operations = new SyncOperations(Connection(server), App);
-        var prepared = await operations.PrepareAsync(Source, default);
-        await Assert.ThrowsAnyAsync<Exception>(() => operations.UploadAsync(new UploadRequest(prepared.OperationId, prepared.SourceRoot, prepared.CollectionFingerprint, Repository, server.Head!), default));
-
-        // The account can no longer see the repository the evidence belongs to.
-        var settings = new FolderSettingsStore(Prefs);
-        var connection = Connection(server, new Credentials(new RepositoryChoice(2, "player/other", "main")));
-        var github = new GitHubConnectionViewModel(connection);
-        var local = new MainWindowViewModel(new CollectionScanner(), new Picker(Source), settings, github);
-        using var workflow = new SetupWorkflowViewModel(local, new SyncOperations(connection, App));
-        await workflow.InitializeAsync();
-        Assert.True(workflow.Sync.HasRecoveryEvidence);
-        Assert.Null(workflow.GitHub.SelectedRepository);
-
-        await workflow.OpenRecoveryAsync();
-        Assert.Null(workflow.Sync.RecoveryStatus);
-        Assert.True(workflow.Sync.HasRecoveryNotice);
-    }
-
-    [Fact]
-    public async Task UploadFailurePreservesFilesAndDoesNotFabricateABaseline()
-    {
-        var server = new CollectionUploadTests.Server { LostResponse = true };
-        using var workflow = await CreateAsync(server);
-        await workflow.InitializeAsync();
-        workflow.BeginUpload();
-        await workflow.ConfirmUploadAsync();
-
-        Assert.Equal(SyncOutcome.Interrupted, workflow.Sync.Outcome);
-        Assert.DoesNotContain("Synced", workflow.Sync.ResultMessage, StringComparison.OrdinalIgnoreCase);
-        Assert.False(File.Exists(SyncStatePath));
-        Assert.Equal(SourceBytes, await File.ReadAllBytesAsync(Path.Combine(Source, "nested", "save.any")));
-    }
-
-    [Fact]
-    public async Task UnbornRepositoryOffersReviewedInitializationAndPublishesTheFirstCollection()
+    public async Task TwoComputersTakeTurnsWithOneSyncButton()
     {
         var server = new CollectionUploadTests.Server("unborn");
+        var pc2Source = Source + "-pc2";
+
+        // PC1 sets up cloud storage and uploads.
+        using var pc1 = await CreateAsync(server);
+        await pc1.InitializeAsync();
+        await pc1.SyncAsync();
+        Assert.Equal(SyncState.InSync, pc1.Sync.State);
+
+        // PC1 plays, saves and quits.
+        await File.WriteAllTextAsync(Path.Combine(Source, "nested", "save.any"), "pc1 progress");
+        await pc1.RefreshAsync();
+        Assert.Equal(SyncState.Upload, pc1.Sync.State);
+        Assert.Equal("Unsynced", pc1.SyncStatus);
+        await pc1.SyncAsync();
+        Assert.Equal(SyncState.InSync, pc1.Sync.State);
+
+        // PC2 starts with an empty save folder and downloads the cloud saves.
+        using var pc2 = await CreateAsync(server, "-pc2");
+        await pc2.InitializeAsync();
+        Assert.Equal(SyncState.Download, pc2.Sync.State);
+        Assert.Equal("Unsynced", pc2.SyncStatus);
+        var writes = server.Writes.Count;
+        await pc2.SyncAsync();
+        Assert.Equal(writes, server.Writes.Count);
+        Assert.Contains("Downloaded 2 files", pc2.SyncMessage);
+        Assert.Equal(SyncState.InSync, pc2.Sync.State);
+        Assert.Equal(Contents(Source), Contents(pc2Source));
+
+        // PC2 plays, saves and uploads.
+        await File.WriteAllTextAsync(Path.Combine(pc2Source, "nested", "save.any"), "pc2 progress");
+        await File.WriteAllTextAsync(Path.Combine(pc2Source, "new-character.d2s"), "pc2 character");
+        await pc2.RefreshAsync();
+        Assert.Equal(SyncState.Upload, pc2.Sync.State);
+        await pc2.SyncAsync();
+        Assert.Equal(SyncState.InSync, pc2.Sync.State);
+
+        // PC1 sees the newer cloud saves, downloads them and backs up what it had.
+        await pc1.RefreshAsync();
+        Assert.Equal(SyncState.Download, pc1.Sync.State);
+        Assert.Equal("Unsynced", pc1.SyncStatus);
+        await pc1.SyncAsync();
+        Assert.Equal(SyncState.InSync, pc1.Sync.State);
+        Assert.Equal("pc2 progress", await File.ReadAllTextAsync(Path.Combine(Source, "nested", "save.any")));
+        Assert.Equal(Contents(pc2Source), Contents(Source));
+        var backup = Assert.Single(Directory.GetDirectories(Path.Combine(App, "replacements")));
+        Assert.Equal("pc1 progress", await File.ReadAllTextAsync(Path.Combine(backup, "files", "nested", "save.any")));
+
+        // PC1 plays again; a deleted file is an ordinary change that reaches PC2 too.
+        File.Delete(Path.Combine(Source, "new-character.d2s"));
+        await File.WriteAllTextAsync(Path.Combine(Source, "nested", "save.any"), "pc1 again");
+        await pc1.RefreshAsync();
+        Assert.Equal(SyncState.Upload, pc1.Sync.State);
+        await pc1.SyncAsync();
+        await pc2.RefreshAsync();
+        Assert.Equal(SyncState.Download, pc2.Sync.State);
+        await pc2.SyncAsync();
+        Assert.False(File.Exists(Path.Combine(pc2Source, "new-character.d2s")));
+        Assert.Equal(Contents(Source), Contents(pc2Source));
+
+        Assert.Empty(Evidence(App));
+        Assert.Empty(Evidence(App + "-pc2"));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ChangesOnBothSidesAskWhichCopyToKeep(bool keepLocal)
+    {
+        // The cloud already holds different saves and this PC has never synced.
+        var server = new CollectionUploadTests.Server("populated");
         using var workflow = await CreateAsync(server);
         await workflow.InitializeAsync();
+        Assert.Equal(SyncState.Conflict, workflow.Sync.State);
+        Assert.Equal("Unsynced", workflow.SyncStatus);
 
-        Assert.True(workflow.IsDashboard);
-        Assert.True(workflow.CanSyncAll);
-        Assert.Equal("Initialize Repository", workflow.SyncActionLabel);
-        Assert.Contains("empty", workflow.SyncNotice, StringComparison.OrdinalIgnoreCase);
-
-        workflow.BeginUpload();
-        Assert.True(workflow.IsUploadReview);
-        Assert.True(workflow.Sync.IsBootstrapCase);
-        Assert.Contains("Initialize", workflow.Sync.ReviewBootstrapTitle);
-        Assert.True(workflow.Sync.CanConfirm);
-
-        await workflow.ConfirmUploadAsync();
-        Assert.Equal(SyncOutcome.Uploaded, workflow.Sync.Outcome);
-        Assert.Equal("Repository initialized", workflow.Sync.ResultTitle);
-        Assert.DoesNotContain("Synced", workflow.Sync.ResultMessage, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("not a verified two-device synchronization", workflow.Sync.ResultMessage);
-        Assert.NotNull(server.Head);
-        // The first commit (no parent) is created by the Contents API; the collection is published as its child.
-        Assert.NotNull(server.Seed);
-        Assert.Equal(server.Seed, server.Commits[server.Head!].Parent);
-        Assert.True(File.Exists(SyncStatePath));
-        Assert.False(workflow.CanSyncAll);
+        // Sync only asks; nothing is transferred until a copy is chosen. Cancel keeps both untouched.
+        await workflow.SyncAsync();
+        Assert.True(workflow.IsConflictChoiceOpen);
+        Assert.False(workflow.CanSync);
+        workflow.CancelConflict();
+        Assert.False(workflow.IsConflictChoiceOpen);
+        await workflow.SyncAsync();
+        Assert.Empty(server.Writes);
         Assert.Equal(SourceBytes, await File.ReadAllBytesAsync(Path.Combine(Source, "nested", "save.any")));
+
+        if (keepLocal) await workflow.KeepLocalAsync();
+        else await workflow.KeepCloudAsync();
+
+        Assert.False(workflow.IsConflictChoiceOpen);
+        Assert.Equal(SyncState.InSync, workflow.Sync.State);
+        var cloud = server.Expand(server.Commits[server.Head!].Tree);
+        if (keepLocal)
+        {
+            Assert.Equal(1, Patches(server));
+            Assert.Contains(cloud, e => e.Path == CloudStorage.FilesPath + "/nested/save.any");
+            Assert.DoesNotContain(cloud, e => e.Path == CloudStorage.FilesPath + "/existing");
+            Assert.Equal(SourceBytes, await File.ReadAllBytesAsync(Path.Combine(Source, "nested", "save.any")));
+        }
+        else
+        {
+            Assert.Empty(server.Writes);
+            Assert.Equal(new byte[] { 1 }, await File.ReadAllBytesAsync(Path.Combine(Source, "existing")));
+            Assert.False(File.Exists(Path.Combine(Source, "nested", "save.any")));
+            var backup = Assert.Single(Directory.GetDirectories(Path.Combine(App, "replacements")));
+            Assert.Equal(SourceBytes, await File.ReadAllBytesAsync(Path.Combine(backup, "files", "nested", "save.any")));
+        }
     }
 
     [Fact]
-    public async Task UnrelatedRepositoryRequiresExplicitAdoptionAcknowledgement()
+    public async Task LostUploadResponseIsRecognisedAsInSyncOnTheNextRefresh()
     {
-        var server = new CollectionUploadTests.Server("unrelated");
-        var before = server.Expand(server.Commits[ParentCommit].Tree).OrderBy(e => e.Path, StringComparer.Ordinal).ToArray();
+        var server = new CollectionUploadTests.Server { LostResponse = true };
         using var workflow = await CreateAsync(server);
         await workflow.InitializeAsync();
+        await workflow.SyncAsync();
 
-        Assert.True(workflow.CanSyncAll);
-        Assert.Equal("Review Adoption", workflow.SyncActionLabel);
-        workflow.BeginUpload();
-        Assert.True(workflow.IsUploadReview);
-        Assert.True(workflow.Sync.IsBootstrapCase);
-        Assert.True(workflow.Sync.RequiresAdoptionAcknowledgement);
-        Assert.False(workflow.Sync.CanConfirm);
+        Assert.True(workflow.IsSyncMessageError);
+        Assert.Empty(Evidence(App));
+        Assert.Equal(SourceBytes, await File.ReadAllBytesAsync(Path.Combine(Source, "nested", "save.any")));
 
-        workflow.Sync.AdoptionAcknowledged = true;
-        Assert.True(workflow.Sync.CanConfirm);
-        await workflow.ConfirmUploadAsync();
-        Assert.Equal(SyncOutcome.Uploaded, workflow.Sync.Outcome);
-        Assert.Equal("Repository adopted", workflow.Sync.ResultTitle);
-        Assert.DoesNotContain("Synced", workflow.Sync.ResultMessage, StringComparison.OrdinalIgnoreCase);
-        var after = server.Expand(server.Commits[server.Head!].Tree)
-            .Where(e => !e.Path.StartsWith(CloudStorage.Root, StringComparison.Ordinal)).OrderBy(e => e.Path, StringComparer.Ordinal).ToArray();
-        Assert.Equal(before, after);
+        // The upload did land. Refresh sees matching files, records the sync and never uploads again.
+        server.LostResponse = false;
+        await workflow.RefreshAsync();
+        Assert.Equal(SyncState.InSync, workflow.Sync.State);
         Assert.True(File.Exists(SyncStatePath));
+        Assert.False(workflow.HasSyncMessage);
+        Assert.Equal(1, Patches(server));
     }
 
     [Fact]
-    public async Task EmptyTreeRepositoryIsBootstrappedOnlyAfterReview()
+    public async Task RejectedUploadNeverOverwritesTheCloudOrRecordsASync()
     {
-        var server = new CollectionUploadTests.Server("empty-tree");
+        var server = new CollectionUploadTests.Server { RejectUpdate = true };
         using var workflow = await CreateAsync(server);
         await workflow.InitializeAsync();
-        Assert.True(workflow.CanSyncAll);
-        Assert.Equal("Create First Collection", workflow.SyncActionLabel);
+        var head = server.Head;
+        await workflow.SyncAsync();
 
-        workflow.BeginUpload();
-        Assert.True(workflow.Sync.IsBootstrapCase);
-        Assert.Contains("first collection", workflow.Sync.ReviewBootstrapTitle, StringComparison.OrdinalIgnoreCase);
-        await workflow.ConfirmUploadAsync();
-        Assert.Equal(SyncOutcome.Uploaded, workflow.Sync.Outcome);
-        Assert.Equal(ParentCommit, server.Commits[server.Head!].Parent);
+        Assert.True(workflow.IsSyncMessageError);
+        Assert.Equal(head, server.Head);
+        Assert.False(File.Exists(SyncStatePath));
+        Assert.Empty(Evidence(App));
+        Assert.Equal(SyncState.Upload, workflow.Sync.State);
+        Assert.True(workflow.CanSync);
     }
 
     [Fact]
-    public async Task BootstrapIsNeverOfferedOrWrittenFromStartupSelectionOrRefresh()
+    public async Task StaleLeftoverEvidenceNeverBlocksSync()
+    {
+        // An operation left behind by a crash is discarded rather than requiring review.
+        var server = new CollectionUploadTests.Server();
+        var operations = new SyncOperations(Connection(server), App);
+        await operations.PrepareAsync(Source, default);
+        Assert.Single(Evidence(App));
+
+        using var workflow = await CreateAsync(server);
+        await workflow.InitializeAsync();
+        Assert.True(workflow.CanSync);
+        await workflow.SyncAsync();
+        Assert.Equal(SyncState.InSync, workflow.Sync.State);
+        Assert.Empty(Evidence(App));
+    }
+
+    [Fact]
+    public async Task StartupAndRefreshNeverWrite()
     {
         var server = new CollectionUploadTests.Server("unborn");
         using var workflow = await CreateAsync(server);
@@ -315,81 +282,29 @@ public sealed class SyncWorkflowTests : IDisposable
     }
 
     [Fact]
-    public async Task IncompatibleRepositoryNeverOffersBootstrap()
+    public async Task IncompatibleRepositoryCannotSync()
     {
         var server = new CollectionUploadTests.Server("incompatible");
         using var workflow = await CreateAsync(server);
         await workflow.InitializeAsync();
-        Assert.False(workflow.CanSyncAll);
-        workflow.BeginUpload();
-        Assert.False(workflow.IsUploadReview);
+        Assert.Equal(SyncState.Unavailable, workflow.Sync.State);
+        Assert.False(workflow.CanSync);
+        Assert.Contains("cannot read", workflow.SyncReason);
+        await workflow.SyncAsync();
         Assert.Empty(server.Writes);
     }
 
     [Fact]
-    public async Task ResolveOffersPullAndPushForRealDifferencesAndBacksUpBeforeReplacingLocalFiles()
+    public async Task EmptySaveFolderHasNothingToUploadIntoEmptyStorage()
     {
-        var server = new CollectionUploadTests.Server("populated");
-        using var workflow = await CreateAsync(server);
-        await workflow.InitializeAsync();
-
-        Assert.True(workflow.ShowResolveAction);
-        Assert.True(workflow.CanResolve);
-        Assert.True(workflow.CanResolvePull);
-        Assert.True(workflow.CanResolvePush);
-        Assert.Contains("differ", workflow.ComparisonStatus, StringComparison.OrdinalIgnoreCase);
-
-        // Resolve is a full view with the existing top-right Back chrome and an explicit bottom-left Cancel.
-        Assert.True(workflow.BeginResolve());
-        Assert.True(workflow.IsResolve);
-        Assert.True(workflow.ShowTitleBarBack);
-        Assert.True(workflow.IsSavesNavActive);
-        workflow.CancelResolve();
-        Assert.True(workflow.IsDashboard);
-
-        await workflow.ResolveAsync(ResolveChoice.Pull);
-        Assert.True(workflow.Sync.HasResolveResult);
-        Assert.Contains("backed up", workflow.Sync.ResolveResultMessage, StringComparison.OrdinalIgnoreCase);
-        Assert.Equal(new byte[] { 1 }, await File.ReadAllBytesAsync(Path.Combine(Source, "existing")));
-        Assert.False(File.Exists(Path.Combine(Source, "nested", "save.any")));
-        Assert.True(File.Exists(SyncStatePath));
-        Assert.True(workflow.IsSyncHealthy);
-        Assert.Equal("In sync at the checked revision", workflow.SyncStatus);
-        Assert.Contains("This device is synchronized", workflow.ComparisonStatus);
-        Assert.Contains("Last synchronized revision", workflow.BaselineLine);
-
-        // A new local edit produces another real difference. With the pulled baseline retained, Resolve can push.
-        await File.WriteAllTextAsync(Path.Combine(Source, "local-edit.bin"), "local edit");
-        await workflow.RefreshAsync();
-        Assert.True(workflow.CanResolvePush);
-        var beforePush = server.Head;
-        await workflow.ResolveAsync(ResolveChoice.Push);
-        Assert.True(workflow.Sync.HasResolveResult);
-        Assert.Equal("Pushed local files", workflow.Sync.ResolveResultTitle);
-        Assert.NotEqual(beforePush, server.Head);
-        Assert.Equal("local edit", await File.ReadAllTextAsync(Path.Combine(Source, "local-edit.bin")));
-        var remote = server.Expand(server.Commits[server.Head!].Tree);
-        Assert.Contains(remote, e => e.Path == CloudStorage.FilesPath + "/local-edit.bin");
-        Assert.True(workflow.IsSyncHealthy);
-        Assert.Equal("In sync at the checked revision", workflow.SyncStatus);
-    }
-
-    [Fact]
-    public async Task BootstrapReviewIsDroppedWhenTheClassificationChangesUnderneath()
-    {
+        Directory.Delete(Source, true);
+        Directory.CreateDirectory(Source);
         var server = new CollectionUploadTests.Server("unborn");
         using var workflow = await CreateAsync(server);
         await workflow.InitializeAsync();
-        workflow.BeginUpload();
-        Assert.True(workflow.Sync.CanConfirm);
-
-        // The repository is no longer unborn once a branch appears; the reviewed case no longer matches.
-        server.Head = ParentCommit;
-        await workflow.CheckCloudAsync();
-        Assert.False(workflow.Sync.CanConfirm);
-        await workflow.ConfirmUploadAsync();
-        Assert.True(workflow.Sync.HasReviewNotice);
-        Assert.Empty(server.Writes);
-        Assert.False(File.Exists(SyncStatePath));
+        Assert.Equal(SyncState.NothingToSync, workflow.Sync.State);
+        Assert.Equal("Nothing to sync yet", workflow.SyncStatus);
+        Assert.False(workflow.CanSync);
+        Assert.Contains("empty", workflow.SyncDetail);
     }
 }

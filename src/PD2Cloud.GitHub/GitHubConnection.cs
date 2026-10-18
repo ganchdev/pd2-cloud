@@ -87,27 +87,6 @@ public sealed partial class GitHubConnection(GitHubApi api, ICredentialStore sto
         finally { gate.Release(); }
     }
 
-    internal async Task<string> CompareCommitsAsync(RepositoryChoice repository, string token, string baseCommit, string headCommit, CancellationToken ct)
-    {
-        return await api.CompareCommitsAsync(repository, token, baseCommit, headCommit, ct).ConfigureAwait(false);
-    }
-
-    internal async Task<string> VerifyAncestryAsync(RepositoryChoice repository, string savedCommit, CancellationToken ct)
-    {
-        await gate.WaitAsync(ct).ConfigureAwait(false);
-        try
-        {
-            var credentials = await ReadAsync(ct).ConfigureAwait(false) ?? throw new ConnectionException("Connect to GitHub first.");
-            if (credentials.Repository is null || credentials.Repository.FullName != repository.FullName
-                || credentials.Repository.DefaultBranch != repository.DefaultBranch)
-                throw new ConnectionException("Repository selection changed. Refresh before checking ancestry.");
-            credentials = await CurrentAsync(credentials, ct).ConfigureAwait(false);
-            var currentHead = await api.GetHeadCommitAsync(repository, credentials.AccessToken, ct).ConfigureAwait(false);
-            return await api.CompareCommitsAsync(repository, credentials.AccessToken, savedCommit, currentHead, ct).ConfigureAwait(false);
-        }
-        finally { gate.Release(); }
-    }
-
     private async Task<ConnectionCredentials?> ReadAsync(CancellationToken ct)
     {
         if (hasCachedCredentials) return Clone(cachedCredentials);

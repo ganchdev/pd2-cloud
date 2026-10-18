@@ -7,15 +7,15 @@ using Xunit;
 
 namespace PD2Cloud.Tests;
 
-// Pull and replacement-push use the same fake server as the publication tests. No live account is used.
-public sealed class ResolveWorkflowTests : IDisposable
+// Download and upload over an existing collection use the same fake server as the publication tests. No live account is used.
+public sealed class SyncTransferTests : IDisposable
 {
     private static readonly RepositoryChoice Repository = new(1, "player/saves", "main");
-    private readonly string root = Path.Combine(OperatingSystem.IsMacOS() ? "/private/tmp" : Path.GetTempPath(), "pd2-resolve-" + Guid.NewGuid().ToString("N"));
+    private readonly string root = Path.Combine(OperatingSystem.IsMacOS() ? "/private/tmp" : Path.GetTempPath(), "pd2-transfer-" + Guid.NewGuid().ToString("N"));
     private string Source => Path.Combine(root, "source");
     private string Data => Path.Combine(root, "app");
 
-    public ResolveWorkflowTests()
+    public SyncTransferTests()
     {
         Directory.CreateDirectory(Path.Combine(Source, "nested"));
         File.WriteAllBytes(Path.Combine(Source, "nested", "save.any"), [0, 255, 128, 13, 10]);
@@ -35,7 +35,7 @@ public sealed class ResolveWorkflowTests : IDisposable
         new(new GitHubApi(new HttpClient(server), "client"), new Credentials());
 
     [Fact]
-    public async Task PullBacksUpCurrentFolderThenInstallsVerifiedCloudBytesAndRecordsTheRevision()
+    public async Task DownloadBacksUpCurrentFolderThenInstallsVerifiedCloudBytesAndRecordsTheRevision()
     {
         var server = new CollectionUploadTests.Server("populated");
         var connection = Connection(server);
@@ -65,7 +65,7 @@ public sealed class ResolveWorkflowTests : IDisposable
     }
 
     [Fact]
-    public async Task ReplacementPushPublishesLocalSnapshotPreservesUnrelatedRepositoryEntriesAndUpdatesBaseline()
+    public async Task UploadOverAnExistingCollectionReplacesItPreservesUnrelatedEntriesAndUpdatesTheSyncRecord()
     {
         var server = new CollectionUploadTests.Server("populated");
         var unrelatedBefore = server.Expand(server.Commits[server.Head!].Tree)
@@ -76,7 +76,7 @@ public sealed class ResolveWorkflowTests : IDisposable
         var op = await preparations.PrepareAsync(Source);
         var uploader = new CollectionUploader(preparations, Connection(server), new LocalSyncStateStore(Data));
         var result = await uploader.UploadAsync(new UploadRequest(op.OperationId, op.SourceRoot, op.CollectionFingerprint,
-            Repository, pinned, RepositoryBootstrapCase.None, UploadMode.ReplaceManaged));
+            Repository, pinned));
 
         Assert.Equal(UploadStatus.Published, result.Status);
         Assert.NotEqual(pinned, server.Head);
@@ -97,7 +97,7 @@ public sealed class ResolveWorkflowTests : IDisposable
     }
 
     [Fact]
-    public async Task PullRejectsAChangedRevisionOrFingerprintBeforeAnyLocalWrite()
+    public async Task DownloadRejectsAChangedRevisionOrFingerprintBeforeAnyLocalWrite()
     {
         var server = new CollectionUploadTests.Server("populated");
         var connection = Connection(server);
@@ -112,5 +112,25 @@ public sealed class ResolveWorkflowTests : IDisposable
 
         Assert.Equal(before, await File.ReadAllBytesAsync(Path.Combine(Source, "nested", "save.any")));
         Assert.False(File.Exists(Path.Combine(Source, "existing")));
+    }
+
+    [Fact]
+    public async Task OnlyTheNewestFiveDownloadBackupsAreKept()
+    {
+        var server = new CollectionUploadTests.Server("populated");
+        var connection = Connection(server);
+        var cloud = await new CloudCollectionReader(connection).ReadAsync(Repository, default);
+        var puller = new CollectionPuller(new OperationPreparationStore(Data), connection, new LocalSyncStateStore(Data));
+        var backups = new List<string>();
+        for (var i = 0; i < 7; i++)
+        {
+            await File.WriteAllTextAsync(Path.Combine(Source, "marker"), i.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            var result = await puller.PullAsync(new PullRequest(Source, Repository, cloud.Commit!, cloud.Collection!.Manifest!.CollectionFingerprint!));
+            backups.Add(new DirectoryInfo(result.BackupDirectory).Parent!.FullName);
+        }
+
+        var kept = Directory.GetDirectories(Path.Combine(Data, "replacements")).Order(StringComparer.Ordinal).ToArray();
+        Assert.Equal(backups.TakeLast(5).Order(StringComparer.Ordinal), kept);
+        Assert.Equal("6", await File.ReadAllTextAsync(Path.Combine(backups[^1], "files", "marker")));
     }
 }

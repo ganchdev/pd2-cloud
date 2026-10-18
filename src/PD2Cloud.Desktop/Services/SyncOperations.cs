@@ -5,7 +5,7 @@ using PD2Cloud.Remote;
 
 namespace PD2Cloud.Desktop.Services;
 
-/// <summary>Wires the desktop review seam to the concrete coordinated publication/recovery APIs.</summary>
+/// <summary>Wires the desktop sync seam to the concrete coordinated upload/download APIs.</summary>
 public sealed class SyncOperations : IUploadOperations
 {
     private readonly OperationPreparationStore preparations;
@@ -15,8 +15,7 @@ public sealed class SyncOperations : IUploadOperations
 
     public SyncOperations(GitHubConnection connection, string? applicationDirectory = null)
     {
-        // Preparation and the sync-state store must share one application directory; the uploader rejects
-        // an upload whenever a successful-sync baseline already exists in that directory.
+        // Preparation, backups and the sync-state store share one application directory.
         var directory = Path.GetFullPath(applicationDirectory ?? ApplicationDataPaths.DirectoryPath);
         preparations = new OperationPreparationStore(directory);
         syncState = new LocalSyncStateStore(directory);
@@ -30,12 +29,8 @@ public sealed class SyncOperations : IUploadOperations
         uploader.UploadAsync(request, ct);
     public Task<PullResult> PullAsync(PullRequest request, CancellationToken ct) =>
         puller.PullAsync(request, ct);
-    public Task<UploadResult> AssessUploadAsync(string operationId, RepositoryChoice repository, CancellationToken ct) =>
-        uploader.AssessRecoveryAsync(operationId, repository, ct);
-    public Task<IReadOnlyList<RecoveryAssessment>> ListRecoveryAsync(CancellationToken ct) =>
-        preparations.AssessRecoveryAsync(ct);
     public Task<(LocalSyncState? State, string? Notice)> LoadSyncStateAsync(CancellationToken ct) =>
         syncState.LoadAsync();
-    public Task<(bool IsAncestor, string? Notice)> VerifyBaselineAncestryAsync(LocalSyncState state, CancellationToken ct) =>
-        uploader.VerifyBaselineAncestryAsync(state, ct);
+    public Task SaveSyncStateAsync(LocalSyncState state, CancellationToken ct) =>
+        syncState.SaveSyncStateAsync(state);
 }

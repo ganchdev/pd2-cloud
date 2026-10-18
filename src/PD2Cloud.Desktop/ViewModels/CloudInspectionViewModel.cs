@@ -1,6 +1,4 @@
 using System.ComponentModel;
-using System.Globalization;
-using PD2Cloud.Core;
 using PD2Cloud.GitHub;
 using PD2Cloud.Remote;
 
@@ -39,7 +37,7 @@ public sealed class CloudInspectionViewModel(Func<RepositoryChoice, Cancellation
         var request = generation;
         using var current = new CancellationTokenSource();
         operation = current;
-        Notice = "Checking cloud files… Local inspection remains available.";
+        Notice = "Checking cloud saves…";
         Notify();
         try
         {
@@ -53,7 +51,7 @@ public sealed class CloudInspectionViewModel(Func<RepositoryChoice, Cancellation
         catch (ConnectionException ex) { if (!disposed && request == generation) Notice = ex.Message; }
         catch (Exception)
         {
-            if (!disposed && request == generation) Notice = "Cloud files could not be verified. Check connectivity, GitHub access and secure storage, then refresh. No cached comparison is used.";
+            if (!disposed && request == generation) Notice = "Cloud saves could not be checked. Check your connection and GitHub access, then refresh.";
         }
         finally
         {
@@ -62,11 +60,6 @@ public sealed class CloudInspectionViewModel(Func<RepositoryChoice, Cancellation
         }
     }
 
-    public CollectionComparison? Compare(CollectionManifest? local, RepositoryChoice? selected)
-    {
-        if (selected is null || IsBusy || local?.IsValid != true || Result?.Repository != selected || Result?.Collection is not { } remote) return null;
-        return CollectionComparer.Compare(new(selected.Id.ToString(CultureInfo.InvariantCulture), selected.DefaultBranch, local.RootPath), local, remote);
-    }
     private void Notify() => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(null));
     public void Dispose() { disposed = true; ++generation; operation?.Cancel(); operation = null; Result = null; }
 }

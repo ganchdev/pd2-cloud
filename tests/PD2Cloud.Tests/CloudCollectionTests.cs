@@ -194,8 +194,8 @@ public sealed class CloudCollectionTests
         var result = CloudCollectionReader.Verify(fixture.Snapshot());
         Assert.Equal(RepositoryContent.ManagedCollection, result.Content);
         Assert.Empty(result.Collection!.Manifest!.Files);
-        var local = CloudCollectionReader.Verify(new Fixture().Snapshot()).Collection!.Manifest! with { RootPath = "/local" };
-        Assert.Equal(ComparisonDecision.InitialUpload, CollectionComparer.Compare(new("1", "main", "/local"), local, result.Collection).Decision);
+        var local = CloudCollectionReader.Verify(new Fixture().Snapshot()).Collection!.Manifest!;
+        Assert.Equal(SyncAction.Upload, SyncPlanner.Plan(local.Files, result.Collection.Manifest.Files, null));
     }
 
     [Fact]
@@ -427,31 +427,12 @@ public sealed class CloudCollectionTests
             2 => Task.FromException<CloudReadResult>(new HttpRequestException()),
             _ => pending.Task
         });
-        var local = verified.Collection!.Manifest! with { RootPath = "/local" };
         await model.RefreshAsync(Repository);
-        Assert.Equal(ComparisonDecision.NoTransfer, model.Compare(local, Repository)!.Decision);
-        Assert.Null(model.Compare(local with { IsStable = false }, Repository));
-        Assert.Null(model.Compare(local, Repository with { Id = 2 }));
-        await model.RefreshAsync(Repository); Assert.Null(model.Result); Assert.Null(model.Compare(local, Repository));
+        Assert.Same(verified, model.Result);
+        await model.RefreshAsync(Repository); Assert.Null(model.Result);
         var delayed = model.RefreshAsync(Repository); Assert.True(model.IsBusy);
         model.Cancel(); pending.SetResult(verified); await delayed;
         Assert.Null(model.Result); Assert.False(model.IsBusy); Assert.Contains("cancelled", model.Notice);
-    }
-
-    [Fact]
-    public async Task VerifiedComparisonUsesCurrentLocalInventoryAndNeverCreatesSuccessfulState()
-    {
-        var verified = CloudCollectionReader.Verify(new Fixture().Snapshot());
-        using var model = new CloudInspectionViewModel((_, _) => Task.FromResult(verified));
-        await model.RefreshAsync(Repository);
-        var local = verified.Collection!.Manifest! with { RootPath = "/first" };
-        Assert.Equal(ComparisonDecision.NoTransfer, model.Compare(local, Repository)!.Decision);
-        var empty = local with { Files = [], CollectionFingerprint = CollectionInventory.Fingerprint([]) };
-        Assert.Equal(ComparisonDecision.InitialDownload, model.Compare(empty, Repository)!.Decision);
-        FileEntry[] different = [new("different", 1, Sha256([42]))];
-        Assert.Equal(ComparisonDecision.Conflict, model.Compare(local with { Files = different, CollectionFingerprint = CollectionInventory.Fingerprint(different) }, Repository)!.Decision);
-        Assert.Equal(ComparisonDecision.NoTransfer, model.Compare(local with { RootPath = "/second" }, Repository)!.Decision);
-        model.Invalidate(); Assert.Null(model.Compare(local, Repository));
     }
 
     [Fact]
@@ -463,15 +444,5 @@ public sealed class CloudCollectionTests
         model.Dispose(); pending.SetResult(CloudCollectionReader.Verify(new Fixture().Snapshot()));
         await operation;
         Assert.Null(model.Result); Assert.False(model.IsBusy);
-    }
-
-    [Fact]
-    public async Task ComparisonPairingComesFromSelectedRepositoryRatherThanRemoteClaims()
-    {
-        var verified = CloudCollectionReader.Verify(new Fixture().Snapshot());
-        var wrong = verified with { Collection = verified.Collection! with { RepositoryIdentity = "other" } };
-        using var model = new CloudInspectionViewModel((_, _) => Task.FromResult(wrong));
-        await model.RefreshAsync(Repository);
-        Assert.Equal(ComparisonBlock.RemoteIdentityMismatch, model.Compare(verified.Collection!.Manifest, Repository)!.Block);
     }
 }
