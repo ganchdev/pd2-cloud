@@ -4,6 +4,8 @@ PD2 Cloud is a generic folder synchronization engine. All regular files within t
 
 First-time setup guides you through **Get Started → Connect with GitHub → Select Repository → Find Your Saves → Dashboard**. Interrupted setup resumes from the saved account/repository/folder progress; completed setup opens the dashboard, including when GitHub is offline. **Settings → GitHub** manages the account and repository; **Settings → Saves** changes or reinspects the local folder. Files are treated as opaque data. Inspection success does not mean files are synchronized with GitHub. See the [setup UX contract](docs/github-setup-ux.md).
 
+Only one PD2 Cloud instance runs at a time: launching a second shows an already-running notice, because recovery preparation coordinates through a filesystem lease. Quit every window (Command-Q on macOS, not just closing it) before opening the app again.
+
 The window is one shell: a title bar with the app name and the current page action, a **Saves**/**Settings** sidebar, and dark card pages. **Your Saves** shows the repository, the reviewed publication status, the primary sync/refresh actions and tiles into the read-only **Cloud Collection** and **Save Folder** file views. Those views list the inspected files by name, type, size and last-modified time, with inspection details (validation issues, SHA-256 hashes, collection fingerprint) behind a disclosure. Settings keeps the General/GitHub/Saves tabs. Every file view is read-only and never modifies source files.
 
 ## Development

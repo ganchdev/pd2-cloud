@@ -296,7 +296,7 @@ public sealed class SyncViewModel : INotifyPropertyChanged, IDisposable
     {
         recoveryNotice = ex is ConnectionException
             ? ex.Message
-            : "Retained upload evidence could not be read. Close other app instances, check access, then refresh.";
+            : "Retained upload evidence could not be read. Quit every PD2 Cloud window, check access, then refresh.";
     }
 
     /// <summary>Explicit reviewed pull: verified cloud bytes replace the local folder after a complete backup.</summary>

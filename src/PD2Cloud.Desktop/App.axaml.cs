@@ -12,6 +12,8 @@ namespace PD2Cloud.Desktop;
 
 public partial class App : Application
 {
+    internal static bool SecondInstance { get; set; }
+
     public override void Initialize()
     {
         AvaloniaXamlLoader.Load(this);
@@ -21,6 +23,13 @@ public partial class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
+            if (SecondInstance)
+            {
+                desktop.MainWindow = new AlreadyRunningWindow();
+                base.OnFrameworkInitializationCompleted();
+                return;
+            }
+
             var window = new MainWindow();
             var clientId = ClientId.Resolve();
             var connection = new GitHubConnection(new GitHubApi(GitHubApi.CreateHttpClient(), clientId), new NativeCredentialStore(clientId));

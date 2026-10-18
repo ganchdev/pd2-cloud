@@ -16,6 +16,7 @@ It contains:
 
 - `settings.json` — selected save folder, setup started/completed progress
 - `local-sync-state.json` — pinned remote revision, verified collection fingerprint and local/remote pairing from a successful publication
+- `instance.lock` — an empty file held exclusively while one desktop instance runs; it prevents a second launch from racing recovery storage
 - `recovery/` — operation journals, `operations.lock` and retained capture backups, which are copies of source save files created during preparation/recovery
 
 The GitHub credential envelope lives only in macOS Keychain, Windows Credential Manager or Linux Secret Service, never in these files (see [GitHub connection](github-connection.md)). Its native entry key is `PD2Cloud.GitHub.` plus the first 24 uppercase hex digits of SHA-256 over the public client ID; the macOS/Windows account label is `GitHub`.

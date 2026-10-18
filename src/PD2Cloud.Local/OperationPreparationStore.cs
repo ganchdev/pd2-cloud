@@ -211,7 +211,7 @@ public sealed partial class OperationPreparationStore
             if (File.Exists(path)) _ = FileFingerprintReader.ReadBounded(path, 0, CancellationToken.None);
             return new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
         }
-        catch (IOException) { throw new RecoveryBlockedException("Recovery storage is busy or unavailable. Close other app instances and retry."); }
+        catch (IOException) { throw new RecoveryBlockedException("Recovery storage is busy or unavailable. Quit every PD2 Cloud window completely, then retry."); }
     }
 
     private (PreparationInventory Inventory, PreparationJournal Journal) ReadJournal(string path, string id, CancellationToken token)

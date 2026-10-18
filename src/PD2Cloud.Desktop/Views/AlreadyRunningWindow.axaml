@@ -1,0 +1,12 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="PD2Cloud.Desktop.Views.AlreadyRunningWindow"
+        Title="PD2 Cloud" Width="480" Height="250" CanResize="False"
+        WindowStartupLocation="CenterScreen" Background="{StaticResource PageBg}">
+    <StackPanel Margin="26" Spacing="12">
+        <TextBlock Classes="sectionTitle" Text="PD2 Cloud is already running" />
+        <TextBlock Classes="muted" TextWrapping="Wrap"
+                   Text="Quit the other PD2 Cloud window completely, then open the app again. On macOS press Command-Q instead of only closing the window, because a closed window can leave the app running." />
+        <Button Classes="primary" Content="Close" HorizontalAlignment="Right" Margin="0,8,0,0" Click="Close_Click" />
+    </StackPanel>
+</Window>
