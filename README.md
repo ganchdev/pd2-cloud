@@ -30,6 +30,8 @@ mise run test
 
 `mise run format` applies C# formatting. CI builds, tests and checks formatting on Windows, macOS and Linux. Tests use synthetic binary files; no game saves are required.
 
+Known local setup gaps are tracked in [development setup follow-ups](docs/dev-setup-follow-ups.md).
+
 ## Layout
 
 - `src/PD2Cloud.Core`: generic manifests, the three-way sync planner, validation and the last-sync model; scanner interface and portable path rules.

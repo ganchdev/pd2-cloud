@@ -80,7 +80,7 @@ public sealed class FileFingerprintReader : IFileFingerprintReader
         {
             // Oversized native stat storage. st_mode offsets follow Darwin and Linux x64/arm64 ABIs.
             var stat = new byte[512];
-            if (FStat(fd, stat) != 0) throw new IOException("Cannot inspect source handle.");
+            if (FStatForPlatform(fd, stat) != 0) throw new IOException("Cannot inspect source handle.");
             var mode = mac ? BitConverter.ToUInt16(stat, 4) :
                 BitConverter.ToUInt32(stat, RuntimeInformation.ProcessArchitecture == Architecture.X64 ? 24 : 16);
             if ((mode & 0xf000) != 0x8000) throw new IOException("Source is not a regular file.");
@@ -98,4 +98,16 @@ public sealed class FileFingerprintReader : IFileFingerprintReader
 
     [DllImport("libc", EntryPoint = "fstat", SetLastError = true)]
     private static extern int FStat(int fd, [Out] byte[] stat);
+
+    // On Darwin x86_64, plain "fstat" is the legacy 32-bit-inode ABI where st_mode is at byte 8, so
+    // the st_mode read at byte 4 sees inode bytes and rejects every regular file. The $INODE64 entry
+    // point selects the 64-bit-inode layout (st_mode at byte 4) that arm64 and Linux already use; it
+    // is only exported on x86_64, where the plain symbol is legacy.
+    [DllImport("libc", EntryPoint = "fstat$INODE64", SetLastError = true)]
+    private static extern int FStatInode64(int fd, [Out] byte[] stat);
+
+    private static int FStatForPlatform(int fd, byte[] stat) =>
+        OperatingSystem.IsMacOS() && RuntimeInformation.ProcessArchitecture == Architecture.X64
+            ? FStatInode64(fd, stat)
+            : FStat(fd, stat);
 }
