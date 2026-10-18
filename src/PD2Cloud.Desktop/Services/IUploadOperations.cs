@@ -13,6 +13,7 @@ public interface IUploadOperations
 {
     Task<PreparedOperation> PrepareAsync(string sourceRoot, CancellationToken ct);
     Task<UploadResult> UploadAsync(UploadRequest request, CancellationToken ct);
+    Task<PullResult> PullAsync(PullRequest request, CancellationToken ct);
     Task<UploadResult> AssessUploadAsync(string operationId, RepositoryChoice repository, CancellationToken ct);
     Task<IReadOnlyList<RecoveryAssessment>> ListRecoveryAsync(CancellationToken ct);
     Task<(LocalSyncState? State, string? Notice)> LoadSyncStateAsync(CancellationToken ct);

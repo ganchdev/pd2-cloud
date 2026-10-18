@@ -12,6 +12,13 @@ public sealed record PreparedOperation(string OperationId, string SourceRoot, st
 public sealed record RecoveryAssessment(string OperationId, RecoveryStatus Status, string Message,
     PreparedOperation? Operation = null);
 
+/// <summary>A complete retained copy of the local collection created immediately before a reviewed replacement.</summary>
+public sealed record ReplacementBackup(string BackupId, string SourceRoot, string BackupDirectory,
+    IReadOnlyList<FileEntry> Files, string CollectionFingerprint, DateTimeOffset CreatedAt);
+
+internal sealed record ReplacementBackupRecord(int SchemaVersion, string BackupId, string SourceRoot,
+    FileEntry[] Files, string CollectionFingerprint, DateTimeOffset CreatedAt);
+
 public sealed class RecoveryBlockedException(string message) : IOException(message);
 
 internal sealed record PreparationInventory(int SchemaVersion, string OperationId, string SourceRoot,

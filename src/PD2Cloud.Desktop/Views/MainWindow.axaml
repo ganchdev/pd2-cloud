@@ -363,13 +363,21 @@
                                             <TextBlock Classes="mutedSmall" Text="{Binding BaselineLine}" VerticalAlignment="Center" />
                                         </StackPanel>
                                         <TextBlock Classes="mutedSmall" Text="{Binding Cloud.Notice}" />
+                                        <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsDashboardChecking}" />
                                         <TextBlock Classes="warning" Text="{Binding SyncNotice}" IsVisible="{Binding HasSyncNotice}" />
+                                        <TextBlock Classes="warning" Text="{Binding ResolveNotice}" IsVisible="{Binding HasResolveNotice}" />
+                                        <Border Classes="nested" IsVisible="{Binding HasResolveResult}">
+                                            <StackPanel Spacing="5">
+                                                <TextBlock Text="{Binding ResolveResultTitle}" FontSize="13.5" FontWeight="SemiBold" />
+                                                <TextBlock Classes="muted" Text="{Binding ResolveResultMessage}" TextWrapping="Wrap" />
+                                            </StackPanel>
+                                        </Border>
                                     </StackPanel>
                                 </Border>
                             </StackPanel>
                         </Border>
 
-                        <Grid ColumnDefinitions="Auto,Auto,Auto,*" ColumnSpacing="10">
+                        <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,*" ColumnSpacing="10">
                             <Button Classes="primary" IsVisible="{Binding ShowSyncAction}" IsEnabled="{Binding CanSyncAll}"
                                     Click="SyncAll_Click" ToolTip.Tip="{Binding SyncAllReason}">
                                 <StackPanel Orientation="Horizontal" Spacing="8">
@@ -387,6 +395,13 @@
                                 <StackPanel Orientation="Horizontal" Spacing="8">
                                     <Path Classes="icon" Data="{StaticResource IconShield}" />
                                     <TextBlock Text="Review Recovery" />
+                                </StackPanel>
+                            </Button>
+                            <Button Grid.Column="3" Classes="primary" IsVisible="{Binding ShowResolveAction}" IsEnabled="{Binding CanResolve}"
+                                    Click="Resolve_Click" ToolTip.Tip="{Binding ResolveReason}">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <Path Classes="iconOnAccent" Data="{StaticResource IconSwap}" />
+                                    <TextBlock Text="Resolve" />
                                 </StackPanel>
                             </Button>
                         </Grid>
@@ -547,6 +562,51 @@
                         </Border>
                     </StackPanel>
 
+                    <!-- Resolve differences -->
+                    <StackPanel IsVisible="{Binding IsResolve}" Spacing="16">
+                        <StackPanel Spacing="7">
+                            <TextBlock Classes="pageTitle" Text="Resolve Differences" />
+                            <TextBlock Classes="subtitle" Text="Choose which complete version should become the shared copy. Nothing is merged or transferred automatically." />
+                        </StackPanel>
+                        <Border Classes="card">
+                            <StackPanel Spacing="8">
+                                <TextBlock Classes="sectionTitle" Text="What differs" />
+                                <TextBlock Text="{Binding ResolveSummary}" FontWeight="SemiBold" />
+                                <TextBlock Classes="muted" Text="Your local save folder and the verified cloud collection do not match. Pull replaces the local folder; push replaces the managed cloud collection." TextWrapping="Wrap" />
+                                <TextBlock Classes="mutedSmall" Text="{Binding ResolveBackupNotice}" TextWrapping="Wrap" />
+                            </StackPanel>
+                        </Border>
+                        <Grid ColumnDefinitions="*,*" ColumnSpacing="14">
+                            <Border Classes="card">
+                                <StackPanel Spacing="10">
+                                    <StackPanel Orientation="Horizontal" Spacing="9">
+                                        <Border Classes="iconTile accent" Width="32" Height="32" CornerRadius="9">
+                                            <Path Classes="iconAccent" Data="{StaticResource IconCloud}" />
+                                        </Border>
+                                        <TextBlock Text="Pull cloud → local" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                    </StackPanel>
+                                    <TextBlock Classes="mutedSmall" Text="Replaces the files in your local save folder with the verified cloud revision. A complete backup of the current local folder is written first and kept on this device." TextWrapping="Wrap" />
+                                    <Button Classes="primary" Content="Pull Cloud Version" Click="ResolvePull_Click" IsEnabled="{Binding CanResolvePull}" HorizontalAlignment="Left" />
+                                </StackPanel>
+                            </Border>
+                            <Border Grid.Column="1" Classes="card">
+                                <StackPanel Spacing="10">
+                                    <StackPanel Orientation="Horizontal" Spacing="9">
+                                        <Border Classes="iconTile violet" Width="32" Height="32" CornerRadius="9">
+                                            <Path Classes="iconViolet" Data="{StaticResource IconFolder}" />
+                                        </Border>
+                                        <TextBlock Text="Push local → cloud" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                    </StackPanel>
+                                    <TextBlock Classes="mutedSmall" Text="Publishes the reviewed local folder to the repository as a child commit. The PD2 Cloud collection is replaced; unrelated repository files are preserved and your local files are never changed." TextWrapping="Wrap" />
+                                    <Button Classes="primary" Content="Push Local Version" Click="ResolvePush_Click" IsEnabled="{Binding CanResolvePush}" HorizontalAlignment="Left" />
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+                        <ProgressBar IsIndeterminate="True" IsVisible="{Binding Sync.IsBusy}" />
+                        <TextBlock Classes="warning" Text="{Binding ResolveNotice}" IsVisible="{Binding HasResolveNotice}" TextWrapping="Wrap" />
+                        <Button Content="Cancel" Click="CancelResolve_Click" HorizontalAlignment="Left" />
+                    </StackPanel>
+
                     <!-- Upload review -->
                     <StackPanel IsVisible="{Binding IsUploadReview}" Spacing="16">
                         <StackPanel Spacing="7">
@@ -669,7 +729,7 @@
                                 <StackPanel Spacing="10">
                                     <TextBlock Classes="muted" Text="PD2 Cloud keeps your save folder and account preferences on this device. Saves are never transferred automatically." />
                                     <Border Classes="divider" />
-                                    <TextBlock Classes="mutedSmall" Text="Inspecting a folder only reads it. Uploading is a separate, reviewed step, and downloads are not available yet." />
+                                    <TextBlock Classes="mutedSmall" Text="Inspecting a folder only reads it. Uploading, pulling and pushing are separate, explicitly reviewed steps; pulling always backs up the local folder first." />
                                 </StackPanel>
                             </Border>
                         </StackPanel>

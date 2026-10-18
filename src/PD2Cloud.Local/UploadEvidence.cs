@@ -6,7 +6,7 @@ public sealed partial class OperationPreparationStore
 {
     // The callback cannot outlive the lease. Remote is the only production consumer; no public write capability.
     internal async Task<T> CoordinateUploadAsync<T>(string id, bool requireCurrentSource,
-        Func<UploadEvidence, Task<T>> action, CancellationToken ct)
+        Func<UploadEvidence, Task<T>> action, CancellationToken ct, bool allowExistingBaseline = false)
     {
         if (!Guid.TryParseExact(id, "N", out _) || id != id.ToLowerInvariant())
             throw new RecoveryBlockedException("Invalid operation identity.");
@@ -16,7 +16,7 @@ public sealed partial class OperationPreparationStore
             using var lease = AcquireLease();
             var baseline = Path.Combine(applicationDirectory, "local-sync-state.json");
             RecoveryStorage.CheckPath(baseline);
-            if (requireCurrentSource && (File.Exists(baseline) || Directory.Exists(baseline)))
+            if (requireCurrentSource && !allowExistingBaseline && (File.Exists(baseline) || Directory.Exists(baseline)))
                 throw new RecoveryBlockedException("Existing successful-sync state requires verified baseline ancestry; initial upload is blocked.");
             var entries = Directory.EnumerateFileSystemEntries(directory).Where(p => Path.GetFileName(p) != "operations.lock").ToArray();
             var path = Path.Combine(directory, id);

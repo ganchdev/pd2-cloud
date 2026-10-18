@@ -327,6 +327,48 @@ public sealed class SyncWorkflowTests : IDisposable
     }
 
     [Fact]
+    public async Task ResolveOffersPullAndPushForRealDifferencesAndBacksUpBeforeReplacingLocalFiles()
+    {
+        var server = new CollectionUploadTests.Server("populated");
+        using var workflow = await CreateAsync(server);
+        await workflow.InitializeAsync();
+
+        Assert.True(workflow.ShowResolveAction);
+        Assert.True(workflow.CanResolve);
+        Assert.True(workflow.CanResolvePull);
+        Assert.True(workflow.CanResolvePush);
+        Assert.Contains("differ", workflow.ComparisonStatus, StringComparison.OrdinalIgnoreCase);
+
+        // Resolve is a full view with the existing top-right Back chrome and an explicit bottom-left Cancel.
+        Assert.True(workflow.BeginResolve());
+        Assert.True(workflow.IsResolve);
+        Assert.True(workflow.ShowTitleBarBack);
+        Assert.True(workflow.IsSavesNavActive);
+        workflow.CancelResolve();
+        Assert.True(workflow.IsDashboard);
+
+        await workflow.ResolveAsync(ResolveChoice.Pull);
+        Assert.True(workflow.Sync.HasResolveResult);
+        Assert.Contains("backed up", workflow.Sync.ResolveResultMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(new byte[] { 1 }, await File.ReadAllBytesAsync(Path.Combine(Source, "existing")));
+        Assert.False(File.Exists(Path.Combine(Source, "nested", "save.any")));
+        Assert.True(File.Exists(SyncStatePath));
+
+        // A new local edit produces another real difference. With the pulled baseline retained, Resolve can push.
+        await File.WriteAllTextAsync(Path.Combine(Source, "local-edit.bin"), "local edit");
+        await workflow.RefreshAsync();
+        Assert.True(workflow.CanResolvePush);
+        var beforePush = server.Head;
+        await workflow.ResolveAsync(ResolveChoice.Push);
+        Assert.True(workflow.Sync.HasResolveResult);
+        Assert.Equal("Pushed local files", workflow.Sync.ResolveResultTitle);
+        Assert.NotEqual(beforePush, server.Head);
+        Assert.Equal("local edit", await File.ReadAllTextAsync(Path.Combine(Source, "local-edit.bin")));
+        var remote = server.Expand(server.Commits[server.Head!].Tree);
+        Assert.Contains(remote, e => e.Path == CloudStorage.FilesPath + "/local-edit.bin");
+    }
+
+    [Fact]
     public async Task BootstrapReviewIsDroppedWhenTheClassificationChangesUnderneath()
     {
         var server = new CollectionUploadTests.Server("unborn");

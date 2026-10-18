@@ -7,7 +7,8 @@ using PD2Cloud.Remote;
 
 namespace PD2Cloud.Desktop.ViewModels;
 
-public enum SyncOutcome { None, Uploaded, UploadedSourceChanged, NotPublished, ConcurrentUpdate, Interrupted, Blocked, Cancelled }
+public enum SyncOutcome { None, Uploaded, UploadedSourceChanged, NotPublished, ConcurrentUpdate, Interrupted, Blocked, Cancelled, Pulled }
+public enum ResolveChoice { None, Pull, Push }
 
 /// <summary>
 /// Explicit reviewed initial upload plus read-only publication-recovery review. It never writes source
@@ -37,6 +38,10 @@ public sealed class SyncViewModel : INotifyPropertyChanged, IDisposable
     private string resultTitle = "";
     private string resultMessage = "";
     private string resultCommit = "";
+    private string resolveNotice = "";
+    private string resolveResultTitle = "";
+    private string resolveResultMessage = "";
+    private bool hasResolveResult;
 
     public SyncViewModel(MainWindowViewModel local, CloudInspectionViewModel cloud, GitHubConnectionViewModel gitHub, IUploadOperations? operations = null)
     {
@@ -167,6 +172,52 @@ public sealed class SyncViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
+    /// <summary>True when the verified cloud collection and the local folder differ and a reviewed replacement can be offered.</summary>
+    public bool CanResolve => operations is not null && !IsBusy && !IsReviewOpen && !HasRecoveryEvidence
+        && (!HasBaseline || BaselineAncestryValid)
+        && local.Manifest?.IsValid == true && local.SelectedPath is not null
+        && gitHub.SelectedRepository is { } repository
+        && cloud.Result is { Content: RepositoryContent.ManagedCollection, Collection.Manifest: not null } result
+        && result.Repository == repository
+        && Comparison?.Decision is ComparisonDecision.Conflict or ComparisonDecision.Upload or ComparisonDecision.Download
+            or ComparisonDecision.MissingFileReview or ComparisonDecision.InitialDownload;
+
+    public bool CanResolvePull => CanResolve && (cloud.Result?.Collection?.Manifest?.Files.Count ?? 0) > 0;
+    public bool CanResolvePush => CanResolve && local.Files.Count > 0;
+
+    public string ResolveReason
+    {
+        get
+        {
+            if (operations is null) return "Resolution is not configured in this build.";
+            if (IsBusy) return "An operation is already in progress.";
+            if (HasRecoveryEvidence) return "An earlier upload is waiting for review. Open Upload Recovery first.";
+            if (HasBaseline && !BaselineAncestryValid) return "The last published revision is no longer part of the remote history. Review the retained evidence first.";
+            if (local.Manifest?.IsValid != true) return "Inspect a valid local folder first.";
+            if (gitHub.SelectedRepository is null) return "Choose a private repository in Settings → GitHub first.";
+            if (cloud.Result is null) return "Check cloud files before resolving differences.";
+            if (cloud.Result.Content != RepositoryContent.ManagedCollection) return "Resolve is available only for a verified managed cloud collection.";
+            if (Comparison is { } comparison && comparison.Decision == ComparisonDecision.NoTransfer) return "Local and cloud files already match.";
+            return "Local and cloud files do not differ in a way that Resolve can handle.";
+        }
+    }
+
+    public string ResolveSummary
+    {
+        get
+        {
+            var localCount = local.Files.Count;
+            var remoteCount = cloud.Result?.Collection?.Manifest?.Files.Count ?? 0;
+            return $"{localCount} local {(localCount == 1 ? "file" : "files")} · {remoteCount} cloud {(remoteCount == 1 ? "file" : "files")} at revision {Short(cloud.Result?.Commit)}";
+        }
+    }
+    public string ResolveBackupNotice => "Pull always writes a complete backup of the current local folder before replacing it. The backup is kept on this device.";
+    public string ResolveNotice => resolveNotice;
+    public bool HasResolveNotice => resolveNotice.Length > 0;
+    public bool HasResolveResult => hasResolveResult;
+    public string ResolveResultTitle => resolveResultTitle;
+    public string ResolveResultMessage => resolveResultMessage;
+
     public string StatusLine
     {
         get
@@ -246,6 +297,187 @@ public sealed class SyncViewModel : INotifyPropertyChanged, IDisposable
         recoveryNotice = ex is ConnectionException
             ? ex.Message
             : "Retained upload evidence could not be read. Close other app instances, check access, then refresh.";
+    }
+
+    /// <summary>Explicit reviewed pull: verified cloud bytes replace the local folder after a complete backup.</summary>
+    public async Task ResolvePullAsync()
+    {
+        if (operations is null || disposed) return;
+        if (!CanResolvePull)
+        {
+            SetResolveNotice(ResolveReason);
+            Notify();
+            return;
+        }
+        var repository = gitHub.SelectedRepository!;
+        var cloudResult = cloud.Result!;
+        var sourceRoot = local.SelectedPath!;
+        var commit = cloudResult.Commit!;
+        var fingerprint = cloudResult.Collection!.Manifest!.CollectionFingerprint!;
+        using var current = new CancellationTokenSource();
+        operation = current;
+        resolveNotice = "Backing up your local files, then installing the verified cloud revision…";
+        hasResolveResult = false;
+        resolveResultTitle = "";
+        resolveResultMessage = "";
+        Notify();
+        try
+        {
+            var result = await operations.PullAsync(new PullRequest(sourceRoot, repository, commit, fingerprint), current.Token);
+            if (disposed) return;
+            outcome = SyncOutcome.Pulled;
+            hasResolveResult = true;
+            resolveResultTitle = "Pulled cloud files";
+            resolveResultMessage = $"Installed {result.FileCount} {(result.FileCount == 1 ? "file" : "files")} from revision {Short(result.Commit)} into your save folder. Your previous local files were backed up to {result.BackupDirectory}."
+                + (result.BaselineRecorded ? " The checked revision was recorded locally as the last synchronized revision." : " The cloud files were installed, but the local sync note could not be saved.");
+            resolveNotice = "";
+        }
+        catch (OperationCanceledException) when (current.IsCancellationRequested)
+        {
+            if (!disposed) SetResolveNotice("Pull cancelled. A complete backup was retained before any replacement.");
+        }
+        catch (RecoveryBlockedException ex)
+        {
+            if (!disposed) SetResolveNotice(ex.Message);
+        }
+        catch (ConnectionException ex)
+        {
+            if (!disposed) SetResolveNotice(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            if (!disposed) SetResolveNotice("Pull did not finish. Your backup was retained." + Diagnostic(ex));
+        }
+        finally
+        {
+            if (ReferenceEquals(operation, current)) operation = null;
+            if (!disposed)
+            {
+                await RefreshStateAsync();
+                Notify();
+            }
+        }
+    }
+
+    /// <summary>Explicit reviewed push: the captured local collection replaces the managed cloud collection.</summary>
+    public async Task ResolvePushAsync()
+    {
+        if (operations is null || disposed) return;
+        if (!CanResolvePush)
+        {
+            SetResolveNotice(CanResolve ? "The local folder is empty; there is nothing to push." : ResolveReason);
+            Notify();
+            return;
+        }
+        var repository = gitHub.SelectedRepository!;
+        var sourceRoot = local.SelectedPath!;
+        var fingerprint = local.Manifest!.CollectionFingerprint!;
+        var pinnedCommit = cloud.Result!.Commit!;
+        using var current = new CancellationTokenSource();
+        operation = current;
+        resolveNotice = "Preparing a reviewed push of your local files…";
+        hasResolveResult = false;
+        resolveResultTitle = "";
+        resolveResultMessage = "";
+        Notify();
+        try
+        {
+            var prepared = await operations.PrepareAsync(sourceRoot, current.Token);
+            if (disposed || current.IsCancellationRequested) return;
+            if (prepared.CollectionFingerprint != fingerprint)
+            {
+                SetResolveNotice("Your files changed while the push was being prepared. Refresh and resolve again.");
+                return;
+            }
+            var result = await operations.UploadAsync(new UploadRequest(prepared.OperationId, prepared.SourceRoot,
+                prepared.CollectionFingerprint, repository, pinnedCommit, RepositoryBootstrapCase.None, UploadMode.ReplaceManaged), current.Token);
+            if (disposed) return;
+            ApplyResolvePushResult(result);
+        }
+        catch (OperationCanceledException) when (current.IsCancellationRequested)
+        {
+            if (!disposed) SetResolveNotice("Push cancelled. Retained evidence is preserved; review Upload Recovery before trying again.");
+        }
+        catch (RecoveryBlockedException ex)
+        {
+            if (!disposed) SetResolveNotice(ex.Message);
+        }
+        catch (ConnectionException ex)
+        {
+            if (!disposed) SetResolveNotice(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            if (!disposed) SetResolveNotice("Push did not finish. Retained evidence is preserved; review Upload Recovery. Your local files were not changed." + Diagnostic(ex));
+        }
+        finally
+        {
+            if (ReferenceEquals(operation, current)) operation = null;
+            if (!disposed)
+            {
+                await RefreshStateAsync();
+                Notify();
+            }
+        }
+    }
+
+    private void ApplyResolvePushResult(UploadResult result)
+    {
+        resultCommit = result.CandidateCommit ?? "";
+        hasResolveResult = true;
+        switch (result.Status)
+        {
+            case UploadStatus.Published:
+                outcome = SyncOutcome.Uploaded;
+                resolveResultTitle = "Pushed local files";
+                resolveResultMessage = $"Published revision {Short(resultCommit)} to {reviewRepositoryOrSelected()} · {gitHub.SelectedRepository?.DefaultBranch}. The cloud collection now matches the reviewed local snapshot. This records remote publication, not a verified two-device synchronization.";
+                break;
+            case UploadStatus.PublishedSourceChanged:
+                outcome = SyncOutcome.UploadedSourceChanged;
+                resolveResultTitle = "Pushed, but your files changed";
+                resolveResultMessage = $"Published revision {Short(resultCommit)}, but your local files changed during the push. The remote copy matches the reviewed snapshot; your newer edits were preserved.";
+                break;
+            case UploadStatus.NotPublished:
+                outcome = SyncOutcome.NotPublished;
+                resolveResultTitle = "Not pushed";
+                resolveResultMessage = "The remote branch still points at the reviewed revision, so nothing was published. Review Upload Recovery before trying again.";
+                break;
+            case UploadStatus.ConcurrentUpdate:
+                outcome = SyncOutcome.ConcurrentUpdate;
+                resolveResultTitle = "Repository changed during push";
+                resolveResultMessage = "Another change reached the repository, so the reviewed local snapshot was not published. Both versions are preserved. Review Upload Recovery, then refresh.";
+                break;
+            default:
+                outcome = SyncOutcome.Interrupted;
+                resolveResultTitle = "Push did not finish";
+                resolveResultMessage = "The push was interrupted. Retained evidence is preserved; review Upload Recovery before trying again. Your local files were not changed.";
+                break;
+        }
+    }
+
+    private string reviewRepositoryOrSelected() => gitHub.SelectedRepository?.FullName ?? "your repository";
+
+    private void SetResolveNotice(string message)
+    {
+        resolveNotice = message;
+        hasResolveResult = false;
+        resolveResultTitle = "";
+        resolveResultMessage = "";
+    }
+
+    public bool BeginResolve()
+    {
+        if (!CanResolve) return false;
+        resolveNotice = "";
+        hasResolveResult = false;
+        resolveResultTitle = "";
+        resolveResultMessage = "";
+        outcome = SyncOutcome.None;
+        resultTitle = "";
+        resultMessage = "";
+        resultCommit = "";
+        Notify();
+        return true;
     }
 
     public bool StartReview()

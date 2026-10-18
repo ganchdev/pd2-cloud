@@ -7,9 +7,12 @@ using PD2Cloud.Local;
 
 namespace PD2Cloud.Remote;
 
-/// <summary>Explicit reviewed pairing, independent of Prepared evidence. Initial upload or explicit bootstrap only.</summary>
+/// <summary>Explicit reviewed pairing, independent of Prepared evidence. Initial upload, replacement push or explicit bootstrap only.</summary>
 public sealed record UploadRequest(string OperationId, string SourceRoot, string CollectionFingerprint,
-    RepositoryChoice Repository, string PinnedCommit, RepositoryBootstrapCase Bootstrap = RepositoryBootstrapCase.None);
+    RepositoryChoice Repository, string PinnedCommit, RepositoryBootstrapCase Bootstrap = RepositoryBootstrapCase.None,
+    UploadMode Mode = UploadMode.Initial);
+
+public enum UploadMode { Initial, ReplaceManaged }
 
 /// <summary>
 /// The reviewed repository classification. None is the ordinary initial-upload case into an already managed,
@@ -28,6 +31,7 @@ public sealed class CollectionUploader(OperationPreparationStore preparations, G
     private const string InitializeDirection = "Initialize";
     private const string BootstrapDirection = "Bootstrap";
     private const string AdoptDirection = "Adopt";
+    private const string ReplaceDirection = "Replace";
     // Local-only placeholder used to round-trip verify a generated tree for an unborn repository before any object is posted.
     private const string UnbornVerificationCommit = "0000000000000000000000000000000000000000";
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -76,7 +80,7 @@ public sealed class CollectionUploader(OperationPreparationStore preparations, G
                 Require(candidateVerification.Content == RepositoryContent.ManagedCollection
                     && candidateVerification.Collection!.Manifest!.Files.SequenceEqual(operation.Files), "Generated upload failed round-trip verification.");
                 await evidence.RevalidateAsync().ConfigureAwait(false);
-                var direction = DirectionOf(request.Bootstrap);
+                var direction = DirectionOf(request);
                 var unborn = request.Bootstrap == RepositoryBootstrapCase.UnbornRepository;
                 var intent = new Intent(1, direction, operation.OperationId, operation.SourceRoot, operation.CollectionFingerprint,
                     evidence.PreparationDigest, request.Repository, original.Commit, original.Tree);
@@ -120,12 +124,16 @@ public sealed class CollectionUploader(OperationPreparationStore preparations, G
                     await syncStateStore.SaveSyncStateAsync(syncState).ConfigureAwait(false);
                 }
                 return result;
-            }, ct), ct);
+            }, ct), ct, request.Mode == UploadMode.ReplaceManaged);
 
     private static void ValidateReviewedState(UploadRequest request, RepositorySnapshot original, CloudReadResult verified)
     {
         switch (request.Bootstrap)
         {
+            case RepositoryBootstrapCase.None when request.Mode == UploadMode.ReplaceManaged:
+                Require(original.Commit == request.PinnedCommit && verified.Content == RepositoryContent.ManagedCollection,
+                    "The verified managed collection changed. Refresh and review the resolution again; nothing was written.");
+                break;
             case RepositoryBootstrapCase.None:
                 Require(original.Commit == request.PinnedCommit && verified.Content == RepositoryContent.ManagedCollection
                     && verified.Collection!.Manifest!.Files.Count == 0,
@@ -148,9 +156,9 @@ public sealed class CollectionUploader(OperationPreparationStore preparations, G
         }
     }
 
-    private static string DirectionOf(RepositoryBootstrapCase bootstrap) => bootstrap switch
+    private static string DirectionOf(UploadRequest request) => request.Bootstrap switch
     {
-        RepositoryBootstrapCase.None => UploadDirection,
+        RepositoryBootstrapCase.None => request.Mode == UploadMode.ReplaceManaged ? ReplaceDirection : UploadDirection,
         RepositoryBootstrapCase.UnbornRepository => InitializeDirection,
         RepositoryBootstrapCase.EmptyTree => BootstrapDirection,
         RepositoryBootstrapCase.Unrelated => AdoptDirection,
@@ -255,7 +263,7 @@ public sealed class CollectionUploader(OperationPreparationStore preparations, G
             CheckDuplicates(property.Value);
         }
     }
-    private static bool IsDirection(string direction) => direction is UploadDirection or InitializeDirection or BootstrapDirection or AdoptDirection;
+    private static bool IsDirection(string direction) => direction is UploadDirection or InitializeDirection or BootstrapDirection or AdoptDirection or ReplaceDirection;
     // Initialize publishes a zero-parent root commit, so it has no parent/original tree to bind.
     private static void ValidateIntentShape(Intent intent)
     {
