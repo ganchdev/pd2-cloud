@@ -5,6 +5,9 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+    <Product>PD2 Cloud</Product>
+    <AssemblyTitle>PD2 Cloud</AssemblyTitle>
+    <Description>PD2 Cloud save-folder synchronization for Project Diablo 2.</Description>
     <!--
       The GitHub App client ID is public metadata, not a secret. Release
       builds inject it so a downloaded artifact works without environment
